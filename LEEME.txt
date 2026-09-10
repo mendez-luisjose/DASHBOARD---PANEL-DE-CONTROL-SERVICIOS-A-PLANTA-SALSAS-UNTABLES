@@ -1,0 +1,17 @@
+DASHBOARD DE SERVICIOS · VAPOR + PTAR
+
+ACTUALIZACIÓN · SELECTOR DE GRÁFICAS HISTÓRICAS
+- En Vapor y PTAR se conserva toda la funcionalidad existente.
+- Dentro de “Comportamiento histórico de todas las variables”, cada proceso ahora incluye un selector “Gráfica a visualizar”.
+- El usuario puede elegir “Todas las gráficas” o una variable específica del proceso.
+- Al elegir una variable específica, únicamente se muestra su gráfica histórica y ocupa el ancho disponible.
+- Al volver a “Todas las gráficas”, se muestran nuevamente todas las gráficas del proceso.
+- Las desviaciones, puntos fuera de rango, gráficas del día, selector de fecha, tablas y carga de Excel no se modificaron.
+
+ARCHIVOS DE DATOS
+- Vapor: Reporte Control Generacion de Vapor.xlsx
+- PTAR: Reporte_Control_PTAR_01-09_al_09-09-2026.xlsx
+
+APERTURA
+1. Recomendado: abrir Dashboard_Servicios_Vapor_PTAR_SELECTOR_GRAFICAS.html con doble clic.
+2. Versión modular: mantener index.html, app.js, estilos.css, ambos fallback.js, ambos Excel y el logo en la misma carpeta.

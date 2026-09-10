@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Servicios industriales · Alimentos Polar Planta 2</title>
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- Riel de navegación -->
+  <aside class="rail">
+    <div class="brand">
+      <img class="logo" src="logo-empresas-polar.png" alt="Empresas Polar" width="150">
+      <div>
+        <h1>Alimentos Polar · Planta 2</h1>
+        <p>Servicios industriales</p>
+      </div>
+    </div>
+    <nav class="nav" role="tablist" aria-label="Servicios de planta">
+      <div class="nav-h">Vista general</div>
+      <button class="tab" role="tab" id="t-resumen" aria-controls="v-resumen" aria-selected="true" data-tab="resumen" style="--k:#131A20">
+        <span class="dot"></span>Resumen de planta<span class="st" data-tabst="resumen"></span>
+      </button>
+      <div class="nav-h">Servicios</div>
+      <button class="tab" role="tab" id="t-ptab" aria-controls="v-ptab" aria-selected="false" data-tab="ptab" style="--k:var(--agua)">
+        <span class="dot"></span>PTAB · Agua suave<span class="st" data-tabst="ptab"></span>
+      </button>
+      <button class="tab" role="tab" id="t-vapor" aria-controls="v-vapor" aria-selected="false" data-tab="vapor" style="--k:var(--vapor)">
+        <span class="dot"></span>Vapor<span class="st" data-tabst="vapor"></span>
+      </button>
+      <button class="tab" role="tab" id="t-aire" aria-controls="v-aire" aria-selected="false" data-tab="aire" style="--k:var(--aire)">
+        <span class="dot"></span>Aire comprimido<span class="st" data-tabst="aire"></span>
+      </button>
+      <button class="tab" role="tab" id="t-frio" aria-controls="v-frio" aria-selected="false" data-tab="frio" style="--k:var(--nh3)">
+        <span class="dot"></span>Refrigeración · NH₃<span class="st" data-tabst="frio"></span>
+      </button>
+      <button class="tab" role="tab" id="t-ptar" aria-controls="v-ptar" aria-selected="false" data-tab="ptar" style="--k:var(--ptar)">
+        <span class="dot"></span>PTAR<span class="st" data-tabst="ptar"></span>
+      </button>
+    </nav>
+    <div class="rail-foot">
+      <div class="mark"><span></span><span></span><span></span><span></span><span></span></div>
+      Los colores siguen el código de identificación de tuberías de la planta.
+    </div>
+  </aside>
+
+  <!-- Contenido -->
+  <div class="main">
+    <header class="top">
+      <div>
+        <h2 id="view-title">Resumen de planta</h2>
+        <div class="sub" id="view-sub"></div>
+      </div>
+      <div class="top-r">
+        <div class="rondas" role="group" aria-label="Ronda de lectura">
+          <button data-ronda="0" aria-pressed="false"><b>07:00</b><span>Ronda 1</span></button>
+          <button data-ronda="1" aria-pressed="true"><b>11:00</b><span>Ronda 2</span></button>
+          <button data-ronda="2" aria-pressed="false"><b>16:00</b><span>Ronda 3</span></button>
+        </div>
+        <span class="stamp" id="stamp"></span>
+      </div>
+    </header>
+
+    <!-- ======= RESUMEN ======= -->
+    <section class="view" id="v-resumen" role="tabpanel" aria-labelledby="t-resumen">
+      <div class="strip mb" id="strip"></div>
+
+
+      <div class="card mb ptar-summary-card vapor-summary-card">
+        <div class="card-h">
+          <h3>Vapor · control operacional de calderas</h3>
+          <span class="note">Archivo local · turnos 07:00 y 19:00</span>
+        </div>
+        <div class="card-b">
+          <div class="ptar-summary-top">
+            <div>
+              <span class="ptar-summary-value tnum" data-vapor-summary-count>—</span>
+              <span class="ptar-summary-label">lecturas registradas del día</span>
+            </div>
+            <div class="ptar-summary-actions">
+              <label class="ptar-date-control">Fecha
+                <select id="vapor-summary-date-select" aria-label="Fecha de Vapor en resumen"></select>
+              </label>
+              <span class="pill idle" data-vapor-summary-pill><i></i>Sin registros</span>
+            </div>
+          </div>
+          <div class="vapor-summary-grid" id="vapor-resumen-procesos"></div>
+        </div>
+      </div>
+
+      <div class="card mb ptar-summary-card">
+        <div class="card-h">
+          <h3>PTAR · control de variables por proceso</h3>
+          <span class="note">Archivo local · turnos 07:00 y 19:00</span>
+        </div>
+        <div class="card-b">
+          <div class="ptar-summary-top">
+            <div>
+              <span class="ptar-summary-value tnum" data-ptar-summary-count>—</span>
+              <span class="ptar-summary-label">lecturas del día</span>
+            </div>
+            <div class="ptar-summary-actions">
+              <label class="ptar-date-control">Fecha
+                <select id="ptar-summary-date-select" aria-label="Fecha PTAR en resumen"></select>
+              </label>
+              <span class="pill idle" data-ptar-summary-pill><i></i>Sin registros</span>
+            </div>
+          </div>
+          <div class="ptar-summary-grid" id="ptar-resumen-procesos"></div>
+        </div>
+      </div>
+
+      <div class="grid g-side mb">
+        <div class="card">
+          <div class="card-h"><h3>Demanda de servicios</h3><span class="note">% de la capacidad instalada</span></div>
+          <div class="card-b">
+            <div class="legend" id="l-demanda"></div>
+            <div class="chart" id="c-demanda"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Desviaciones de la ronda</h3><span class="note" id="alarm-count">—</span></div>
+          <div class="card-b" id="alarmas"></div>
+        </div>
+      </div>
+
+      <div class="grid g-2">
+        <div class="card">
+          <div class="card-h"><h3>Consumo por línea de producción</h3><span class="note">al momento de la lectura</span></div>
+          <div class="card-b">
+            <div class="legend" id="l-lineas"></div>
+            <div class="chart" id="c-lineas"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Líneas de producción</h3><span class="note">avance del programa</span></div>
+          <div class="card-b" id="lineas-prod"></div>
+        </div>
+      </div>
+
+      <p class="foot-note">Vapor y PTAR utilizan los registros de sus archivos locales. PTAR contiene cuatro procesos, 30 variables de control y dos turnos diarios a las 07:00 y 19:00; las desviaciones se determinan comparando cada lectura con el rango de operación indicado en la planilla.</p>
+    </section>
+
+    <!-- ======= PTAB ======= -->
+    <section class="view" id="v-ptab" role="tabpanel" aria-labelledby="t-ptab" hidden>
+      <div class="grid g-kpi mb" data-kpis="ptab"></div>
+
+      <div class="grid g-2 mb">
+        <div class="card">
+          <div class="card-h"><h3>Dureza del agua tratada</h3><span class="note">límite de proceso: 17 ppm</span></div>
+          <div class="card-b"><div class="chart" id="c-ptab-dureza"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Caudal a red de planta</h3><span class="note">m³/h</span></div>
+          <div class="card-b"><div class="chart" id="c-ptab-caudal"></div></div>
+        </div>
+      </div>
+
+      <div class="grid g-3 mb">
+        <div class="card">
+          <div class="card-h"><h3>Cisterna de agua tratada</h3></div>
+          <div class="card-b"><div class="chart" id="g-ptab-nivel"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Salmuera para regeneración</h3></div>
+          <div class="card-b"><div class="chart" id="g-ptab-sal"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Consumo diario</h3><span class="note">m³</span></div>
+          <div class="card-b"><div class="chart" id="c-ptab-dia"></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>Suavizadores y bombeo</h3><span class="note">tren de ablandamiento</span></div>
+        <div class="card-b" id="tb-ptab"></div>
+      </div>
+    </section>
+
+    <!-- ======= VAPOR ======= -->
+    <section class="view vapor-theme" id="v-vapor" role="tabpanel" aria-labelledby="t-vapor" hidden>
+      <div class="vapor-date-strip mb">
+        <label class="ptar-date-control">Fecha a visualizar
+          <select id="vapor-date-select" aria-label="Fecha de operación Vapor"></select>
+        </label>
+        <label class="vapor-file-btn" for="vapor-excel-input">Cargar Excel Vapor</label>
+        <input id="vapor-excel-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+      </div>
+
+      <div class="vapor-kpi-grid mb" id="vapor-kpis-proceso"></div>
+
+      <div class="vapor-history-intro mb">
+        <div>
+          <h3>Gráficas de Vapor por proceso y variable</h3>
+          <p>La lectura diaria usa la fecha seleccionada. Debajo, cada variable posee su propia gráfica con todos los días en los que existe registro en el archivo.</p>
+        </div>
+        <span class="vapor-history-key"><i></i>Fuera de rango</span>
+      </div>
+      <div class="ptar-chart-process-list mb" id="vapor-graficas-procesos"></div>
+
+      <div class="grid g-2 mb">
+        <div class="card">
+          <div class="card-h">
+            <h3>Desviaciones del día seleccionado</h3>
+            <span class="note" id="vapor-desv-count">—</span>
+          </div>
+          <div class="card-b" id="vapor-desviaciones"></div>
+        </div>
+      </div>
+
+      <div class="ptar-process-list" id="vapor-procesos"></div>
+    </section>
+
+
+    <!-- ======= AIRE ======= -->
+    <section class="view" id="v-aire" role="tabpanel" aria-labelledby="t-aire" hidden>
+      <div class="grid g-kpi mb" data-kpis="aire"></div>
+
+      <div class="grid g-2 mb">
+        <div class="card">
+          <div class="card-h"><h3>Presión en red</h3><span class="note">bar · mínimo de proceso 6.2</span></div>
+          <div class="card-b"><div class="chart" id="c-aire-presion"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Caudal entregado</h3><span class="note">Nm³/min</span></div>
+          <div class="card-b"><div class="chart" id="c-aire-caudal"></div></div>
+        </div>
+      </div>
+
+      <div class="grid g-3 mb">
+        <div class="card">
+          <div class="card-h"><h3>Carga de compresores</h3></div>
+          <div class="card-b"><div class="chart" id="g-aire-carga"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Fugas estimadas</h3></div>
+          <div class="card-b"><div class="chart" id="g-aire-fugas"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Potencia por compresor</h3><span class="note">kW</span></div>
+          <div class="card-b"><div class="chart" id="c-aire-kw"></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>Sala de compresores</h3><span class="note">aire grado alimenticio · ISO 8573-1 clase 2</span></div>
+        <div class="card-b" id="tb-aire"></div>
+      </div>
+    </section>
+
+    <!-- ======= REFRIGERACIÓN / NH3 ======= -->
+    <section class="view" id="v-frio" role="tabpanel" aria-labelledby="t-frio" hidden>
+      <div class="grid g-kpi mb" data-kpis="frio"></div>
+
+      <div class="card mb">
+        <div class="card-h">
+          <h3>Detección de amoníaco</h3>
+          <span class="note">umbrales: 25 ppm aviso · 35 ppm alarma · 150 ppm evacuación</span>
+        </div>
+        <div class="card-b">
+          <div class="det" id="detectores"></div>
+          <p class="thr">Los detectores se prueban cada lunes a las 06:30. Ventilación de emergencia enclavada a 35 ppm.</p>
+        </div>
+      </div>
+
+      <div class="grid g-2 mb">
+        <div class="card">
+          <div class="card-h"><h3>Temperatura de agua helada</h3><span class="note">°C · suministro y retorno</span></div>
+          <div class="card-b">
+            <div class="legend" id="l-frio-temp"></div>
+            <div class="chart" id="c-frio-temp"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Presiones del sistema</h3><span class="note">bar · alta y baja</span></div>
+          <div class="card-b">
+            <div class="legend" id="l-frio-pres"></div>
+            <div class="chart" id="c-frio-pres"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g-3 mb">
+        <div class="card">
+          <div class="card-h"><h3>Carga térmica</h3></div>
+          <div class="card-b"><div class="chart" id="g-frio-carga"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Nivel en recibidor de NH₃</h3></div>
+          <div class="card-b"><div class="chart" id="g-frio-nivel"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Demanda de frío por área</h3><span class="note">TR</span></div>
+          <div class="card-b"><div class="chart" id="c-frio-area"></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>Sala de máquinas</h3></div>
+        <div class="card-b" id="tb-frio"></div>
+      </div>
+    </section>
+
+    <!-- ======= PTAR ======= -->
+    <section class="view ptar-theme" id="v-ptar" role="tabpanel" aria-labelledby="t-ptar" hidden>
+      <div class="ptar-date-strip mb">
+        <label class="ptar-date-control">Fecha a visualizar
+          <select id="ptar-date-select" aria-label="Fecha de operación PTAR"></select>
+        </label>
+        <label class="ptar-file-btn" for="ptar-excel-input">Cargar Excel PTAR</label>
+        <input id="ptar-excel-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+      </div>
+
+      <div class="ptar-kpi-grid mb" id="ptar-kpis-proceso"></div>
+
+      <div class="ptar-history-intro mb">
+        <div>
+          <h3>Gráficas de PTAR por proceso y variable</h3>
+          <p>La lectura diaria usa la fecha seleccionada. Debajo, cada variable posee su propia gráfica con todos los días en los que existe registro en el archivo.</p>
+        </div>
+        <span class="ptar-history-key"><i></i>Fuera de rango</span>
+      </div>
+      <div class="ptar-chart-process-list mb" id="ptar-graficas-procesos"></div>
+
+      <div class="grid g-2 mb">
+        <div class="card">
+          <div class="card-h">
+            <h3>Desviaciones del día seleccionado</h3>
+            <span class="note" id="ptar-desv-count">—</span>
+          </div>
+          <div class="card-b" id="ptar-desviaciones"></div>
+        </div>
+      </div>
+
+      <div class="ptar-process-list" id="ptar-procesos"></div>
+    </section>
+  </div>
+</div>
+
+<script src="ptar_fallback.js"></script>
+<script src="vapor_fallback.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
