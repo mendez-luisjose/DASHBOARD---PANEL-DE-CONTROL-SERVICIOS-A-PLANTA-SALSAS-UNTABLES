@@ -12,6 +12,7 @@
 
   /* Acentos por servicio: código de identificación de tuberías */
   --agua:#1B8A5A;
+  --suav:#2A7A68;
   --vapor:#C0451B;
   --aire:#1E63C8;
   --nh3:#B8860B;
@@ -735,3 +736,254 @@ table{border-collapse:collapse;width:100%}
   .history-chart-selector{width:100%}
   .history-chart-selector select{width:100%;max-width:none;min-width:0}
 }
+
+
+/* ---------- SUAVIZADORES Y TANQUES · control operacional desde Excel local ---------- */
+.suav-summary-card{border-top-color:var(--suav)}
+.suav-summary-card .ptar-progress i,
+.suav-theme .ptar-progress i,
+.suav-theme .ptar-history-meter i{background:var(--suav)}
+.suav-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px}
+.suav-date-strip{display:flex;justify-content:flex-end;align-items:center;gap:9px;min-height:42px;flex-wrap:wrap}
+.suav-date-strip .ptar-date-control{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 9px 7px 12px;box-shadow:var(--sh);color:var(--ink-2)}
+.suav-theme .ptar-date-control select:focus-visible,
+.suav-summary-card .ptar-date-control select:focus-visible,
+.suav-theme .ptar-chart-selector select:focus-visible,
+.suav-theme .history-chart-selector select:focus-visible{outline:2px solid var(--suav);outline-offset:1px}
+.suav-file-btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:7px 12px;border:1px solid #AFCFC5;border-radius:9px;background:#F4FAF8;color:#1F6354;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:var(--sh)}
+.suav-file-btn:hover{background:#EAF6F2}
+.suav-file-btn:focus-visible{outline:2px solid var(--suav);outline-offset:1px}
+.suav-kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(240px,1fr));gap:14px}
+.suav-process-kpi{border-top:3px solid var(--suav)}
+.suav-theme .ptar-chart-process-card{border-top:3px solid rgba(42,122,104,.68)}
+.suav-theme .ptar-chart-panel{background:#FBFEFD}
+.suav-theme .ptar-history-var-card{background:#FBFEFD}
+.suav-theme .ptar-table tr.has-dev td:first-child,
+.suav-theme .ptar-table tr.has-dev td:nth-child(2){color:var(--crit);font-weight:700}
+.suav-real-table{min-width:900px}
+.suav-real-table th.num small{display:block;margin-top:2px;color:var(--ink-3);font-size:9.5px;font-weight:400;white-space:nowrap}
+.suav-real-table .ptar-puesto{width:23%}
+.suav-real-table td:nth-child(2){width:28%}
+.suav-real-table .ptar-rango{width:17%}
+@media (max-width:900px){.suav-summary-grid,.suav-kpi-grid{grid-template-columns:1fr}.suav-date-strip{justify-content:flex-start}}
+
+
+/* ---------- Prioridad operacional · variables fuera de rango ---------- */
+.priority-zone{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:12px;
+  box-shadow:var(--sh);
+  overflow:hidden;
+}
+.priority-zone.has-alerts{
+  border-color:#E7B8B2;
+  box-shadow:0 2px 8px rgba(192,57,43,.08);
+}
+.priority-zone.has-warnings:not(.has-alerts){border-color:#E7D39B}
+.priority-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  padding:15px 17px 13px;border-bottom:1px solid var(--line-2);
+  background:linear-gradient(180deg,#fff 0%,#FCFDFD 100%);
+}
+.priority-title-wrap{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.priority-icon{
+  width:31px;height:31px;border-radius:9px;display:grid;place-items:center;flex:0 0 auto;
+  background:#FDF3F2;color:var(--crit);font-size:17px;font-weight:700;border:1px solid #EFC8C3;
+}
+.priority-zone.is-ok .priority-icon{background:#F2F9F5;color:var(--ok);border-color:#BFE0CE}
+.priority-head h3{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em}
+.priority-head p{margin:2px 0 0;color:var(--ink-3);font-size:12px;max-width:780px}
+.priority-count{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.priority-body{padding:14px 16px 16px}
+.priority-ok{
+  display:flex;align-items:center;gap:12px;padding:13px 14px;border:1px solid #CFE5D9;
+  background:#F5FAF7;border-radius:9px;color:var(--ink-2)
+}
+.priority-ok strong{color:var(--ok)}
+.priority-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:12px}
+.priority-card{
+  border:1px solid #EFC8C3;border-left:4px solid var(--crit);border-radius:10px;background:#fff;
+  overflow:hidden;min-width:0;
+}
+.priority-card.warn{border-color:#E9D7A7;border-left-color:var(--warn)}
+.priority-card-head{padding:12px 13px 9px;display:flex;gap:12px;justify-content:space-between;align-items:flex-start}
+.priority-card-title{min-width:0}
+.priority-card-service{font-size:10.5px;text-transform:uppercase;letter-spacing:.055em;color:var(--ink-3);font-weight:650;margin-bottom:3px}
+.priority-card h4{margin:0;font-size:14px;line-height:1.25;font-weight:650}
+.priority-reading{font-size:22px;font-weight:650;letter-spacing:-.025em;white-space:nowrap;color:var(--crit);font-variant-numeric:tabular-nums}
+.priority-card.warn .priority-reading{color:var(--warn)}
+.priority-reading small{font-size:11.5px;color:var(--ink-2);font-weight:500;margin-left:3px}
+.priority-meta{padding:0 13px 9px;display:flex;gap:5px 12px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-2)}
+.priority-meta b{font-weight:600;color:var(--ink)}
+.priority-detail{margin:0 13px 10px;padding:8px 9px;border-radius:7px;background:#F8FAFB;font-size:11.5px;color:var(--ink-2);line-height:1.45}
+.priority-detail strong{color:var(--ink);font-weight:600}
+.priority-chart-wrap{border-top:1px solid var(--line-2);padding:9px 10px 7px;background:#FCFDFD}
+.priority-chart-label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 5px;font-size:10.5px;color:var(--ink-3)}
+.priority-chart{min-height:145px;width:100%}
+.priority-chart svg{display:block;width:100%;max-height:185px}
+.priority-chart .ptar-chart-legend{font-size:10.5px;padding-top:3px}
+.priority-actions{display:flex;justify-content:flex-end;padding:0 13px 11px}
+.priority-go{border:0;background:none;color:var(--ink-2);font-size:11.5px;padding:3px 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.priority-go:hover{color:var(--ink)}
+.priority-summary-note{font-size:11px;color:var(--ink-3);margin-top:9px}
+@media (max-width:760px){
+  .priority-grid{grid-template-columns:1fr}
+  .priority-card-head{display:block}
+  .priority-reading{margin-top:6px}
+}
+
+
+/* =========================================================
+   PTAB · Aguas Blancas · datos reales de archivo local
+   ========================================================= */
+.ptab-summary-card{border-top:3px solid var(--agua)}
+.ptab-summary-card .ptar-progress i,
+.ptab-real-theme .ptar-progress i,
+.ptab-real-theme .ptar-history-meter i{background:var(--agua)}
+.ptab-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px}
+
+.ptab-real-theme .ptar-date-control select:focus-visible,
+.ptab-summary-card .ptar-date-control select:focus-visible,
+.ptab-real-theme .ptar-chart-selector select:focus-visible,
+.ptab-real-theme .history-chart-selector select:focus-visible{
+  outline:2px solid var(--agua);outline-offset:1px
+}
+.ptab-file-btn{
+  display:inline-flex;align-items:center;justify-content:center;min-height:38px;
+  padding:7px 12px;border:1px solid #A7D1BD;border-radius:9px;
+  background:#F3FAF6;color:#166A43;font-size:12px;font-weight:600;
+  cursor:pointer;white-space:nowrap;box-shadow:var(--sh)
+}
+.ptab-file-btn:hover{background:#E8F6EE}
+.ptab-file-btn:focus-visible{outline:2px solid var(--agua);outline-offset:1px}
+.ptab-process-kpi{border-top:3px solid var(--agua)}
+.ptab-real-theme .ptar-chart-process-card{border-top:3px solid rgba(27,138,90,.68)}
+.ptab-real-theme .ptar-chart-panel,
+.ptab-real-theme .ptar-history-var-card{background:#FBFEFC}
+.ptab-real-theme .ptar-table tr.has-dev td:first-child,
+.ptab-real-theme .ptar-table tr.has-dev td:nth-child(2){color:var(--crit);font-weight:700}
+.ptab-real-table{min-width:900px}
+.ptab-real-table th.num small{
+  display:block;margin-top:2px;color:var(--ink-3);font-size:9.5px;
+  font-weight:400;white-space:nowrap
+}
+.ptab-real-table .ptar-puesto{width:23%}
+.ptab-real-table td:nth-child(2){width:28%}
+.ptab-real-table .ptar-rango{width:17%}
+@media (max-width:900px){
+  .ptab-summary-grid{grid-template-columns:1fr}
+}
+
+/* =========================================================
+   Encabezado limpio
+   ========================================================= */
+.top{justify-content:flex-start}
+.top-r{display:none !important}
+
+/* =========================================================
+   Prioridad operacional · carrusel profesional de 3 variables
+   ========================================================= */
+.priority-carousel{overflow:hidden;width:100%}
+.priority-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;will-change:transform,opacity}
+.priority-slide-next{animation:prioritySlideNext .30s cubic-bezier(.22,.61,.36,1)}
+.priority-slide-prev{animation:prioritySlidePrev .30s cubic-bezier(.22,.61,.36,1)}
+@keyframes prioritySlideNext{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:translateX(0)}}
+@keyframes prioritySlidePrev{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:translateX(0)}}
+.priority-pager-wrap{display:flex;justify-content:center;align-items:center;margin-top:14px}
+.priority-pager{display:inline-flex;align-items:center;gap:8px;padding:5px 6px;border:1px solid var(--line);border-radius:999px;background:#F8FAFB;box-shadow:0 1px 2px rgba(19,26,32,.04)}
+.priority-page-btn{width:34px;height:34px;display:grid;place-items:center;border:1px solid transparent;border-radius:50%;background:var(--panel);color:var(--ink-2);font-size:16px;font-weight:600;line-height:1;padding:0;cursor:pointer;box-shadow:0 1px 2px rgba(19,26,32,.06);transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease,box-shadow .16s ease}
+.priority-page-btn:hover:not(:disabled){background:#FFFFFF;border-color:#D8DEE3;color:var(--ink);transform:translateY(-1px);box-shadow:0 3px 8px rgba(19,26,32,.08)}
+.priority-page-btn:active:not(:disabled){transform:translateY(0) scale(.97)}
+.priority-page-btn:focus-visible{outline:2px solid rgba(30,99,200,.28);outline-offset:2px}
+.priority-page-btn:disabled{opacity:.28;cursor:default;box-shadow:none}
+.priority-page-status{min-width:224px;display:flex;align-items:center;justify-content:center;gap:11px;padding:0 7px;white-space:nowrap;font-size:11.5px;color:var(--ink-2)}
+.priority-page-range strong{color:var(--ink);font-size:12px;font-weight:650}
+.priority-page-number{color:var(--ink-3);font-size:10.5px;font-variant-numeric:tabular-nums}
+.priority-page-dots{display:flex;align-items:center;justify-content:center;gap:5px}
+.priority-page-dots i{display:block;width:5px;height:5px;border-radius:999px;background:#D7DDE2;transition:width .18s ease,background .18s ease}
+.priority-page-dots i.active{width:16px;background:var(--crit)}
+.priority-zone.has-warnings:not(.has-alerts) .priority-page-dots i.active{background:var(--warn)}
+@media(max-width:1180px){.priority-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.priority-grid{grid-template-columns:1fr}.priority-page-status{min-width:150px;gap:8px}.priority-page-dots{display:none}}
+@media(prefers-reduced-motion:reduce){.priority-slide-next,.priority-slide-prev{animation:none}.priority-page-btn,.priority-page-dots i{transition:none}}
+
+
+/* =========================================================
+   Compresores de aire + Refrigeración/NH3 · histórico real
+   ========================================================= */
+.wa-summary-card{position:relative;overflow:hidden}
+.wa-aire-summary{border-top:3px solid var(--aire)}
+.wa-frio-summary{border-top:3px solid var(--nh3)}
+.wa-summary-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:10px;
+}
+.wa-summary-card .ptar-summary-process{min-height:102px}
+.wa-summary-card .ptar-progress i{background:var(--aire)}
+.wa-frio-summary .ptar-progress i{background:var(--nh3)}
+
+.wa-file-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:38px;padding:7px 12px;border:1px solid var(--line);
+  border-radius:9px;background:#fff;font-size:12px;font-weight:600;
+  cursor:pointer;box-shadow:var(--sh);transition:.18s ease;
+}
+.wa-file-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(19,26,32,.08)}
+.wa-aire-file-btn{color:#1556A8;border-color:#BBD2F2;background:#F6FAFF}
+.wa-frio-file-btn{color:#8A6510;border-color:#E8D9A6;background:#FFFDF5}
+.wa-file-btn:focus-visible{outline:2px solid var(--aire);outline-offset:2px}
+
+.wa-theme .ptar-process-card,
+.wa-theme .ptar-chart-process-card{overflow:hidden}
+.wa-aire-theme .ptar-process-card,
+.wa-aire-theme .ptar-chart-process-card{border-top:3px solid rgba(30,99,200,.75)}
+.wa-frio-theme .ptar-process-card,
+.wa-frio-theme .ptar-chart-process-card{border-top:3px solid rgba(184,134,11,.78)}
+.wa-aire-kpi{border-top:3px solid var(--aire)}
+.wa-frio-kpi{border-top:3px solid var(--nh3)}
+.wa-aire-theme .ptar-progress i{background:var(--aire)}
+.wa-frio-theme .ptar-progress i{background:var(--nh3)}
+
+.wa-history-key{
+  display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;
+  font-size:11.5px;color:var(--ink-3);white-space:nowrap
+}
+.wa-history-key i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.wa-history-key i.ok{background:var(--ok)}
+.wa-history-key i.warn{background:var(--warn)}
+.wa-history-key i.crit{background:var(--crit)}
+
+.wa-history-card .ptar-history-range{
+  max-width:48%;text-align:right;line-height:1.25
+}
+.wa-real-table{min-width:930px}
+.wa-real-table th small{
+  display:block;margin-top:2px;color:var(--ink-3);
+  font-size:9.5px;font-weight:400;line-height:1.25
+}
+.wa-real-table td:nth-child(2){min-width:180px}
+.wa-real-table td:nth-child(3){min-width:190px}
+.wa-cell{min-width:155px}
+.wa-cell.ok{background:#F6FBF8;color:#1E6848}
+.wa-cell.warn{background:#FFF8E8;color:#90620A;font-weight:600}
+.wa-cell.crit{background:#FFF2F0;color:#A33128;font-weight:700}
+.wa-cell.info{background:#F6F7F8;color:var(--ink-2)}
+.wa-cell.idle{color:var(--ink-3)}
+.wa-indicator{font-size:12px}
+.wa-dev.warn .title{color:#8A620B}
+.wa-dev.crit .title{color:#A33128}
+
+.wa-theme .ptar-chart-panel{background:#FCFDFE}
+.wa-aire-theme .ptar-history-var-card{border-color:#DCE7F7}
+.wa-frio-theme .ptar-history-var-card{border-color:#ECE4C8}
+.wa-theme .ptar-process-chart svg,
+.wa-theme .ptar-history-chart svg{display:block;width:100%;height:auto}
+.wa-theme .history-toolbar{align-items:center}
+
+@media (max-width:900px){
+  .wa-summary-grid{grid-template-columns:1fr}
+  .wa-history-key{white-space:normal}
+}
+

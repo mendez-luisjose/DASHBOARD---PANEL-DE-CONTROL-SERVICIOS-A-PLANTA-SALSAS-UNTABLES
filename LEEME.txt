@@ -1,37 +1,52 @@
-DASHBOARD DE SERVICIOS · VAPOR + PTAR
+DASHBOARD DE SERVICIOS · COMPRESORES DE AIRE + REFRIGERACIÓN / NH3
 
-ACTUALIZACIÓN DE VAPOR
-- Fuente nueva: Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx
-- Fechas disponibles: 08/09/2026 y 09/09/2026.
-- Procesos:
-  1. Alimentación Calderas
-  2. Caldera N°1
-  3. Caldera N°2
-  4. Caldera N°3
-  5. Caldera N°4
-  6. Caldera N°5
-- 58 variables de control.
-- Turnos: 07:00 y 19:00.
-- Se eliminó del dashboard la información antigua de Vapor y se reemplazó por los datos de este archivo.
-- Vista general: resumen de Vapor por proceso, lecturas registradas, desviaciones y selector de fecha.
-- Pestaña Vapor:
+CAMBIOS DE ESTA VERSIÓN
+- Se sustituyeron los datos simulados de las pestañas de Aire comprimido y Refrigeración/NH3 por información real del archivo:
+  Historial_Reportes_Compresores_Refrigeracion_WhatsApp.xlsx.
+- La pestaña "Aire comprimido" pasa a mostrarse como "Compresores de aire".
+- Compresores de aire incluye:
+  * Compresores Aire.
+  * Trampas de Aire.
+  * 9 variables/equipos del catálogo.
+- Refrigeración y amoníaco incluye:
+  * Compresores NH3.
+  * Banco de Hielo.
+  * Cavas.
+  * Cava Gigante.
+  * Fraccionamiento.
+  * UMAS Margarina.
+  * Condensador/Evaporativo.
+  * NH3 en Cilindros.
+  * 37 variables/equipos del catálogo.
+- Se utilizan 9 fechas operativas: 01/09/2026 al 09/09/2026.
+- Los turnos se conservan tal como aparecen en el histórico: 06:00-18:00 y 18:00-06:00.
+- El 02/09/2026 contiene dos reportes declarados como 06:00-18:00 y el dashboard conserva ambos sin inventar un turno diferente.
+- Los reportes sin fecha operativa exacta se pueden consultar con la opción «Sin fecha exacta» del selector. No se colocan artificialmente dentro de la línea temporal histórica.
+- No se inventaron rangos numéricos para presión, temperatura u otras variables cuando el historial no los informa.
+- El estado se toma de lo reportado por el operador:
+  ✅ normal/operativo
+  ⚠️ alerta
+  ⛔ fuera de servicio / fuera de norma
+- Las alertas y equipos fuera de servicio aparecen en la sección de prioridad operacional.
+- El carrusel prioritario conserva la visualización de 3 gráficas por página y la animación profesional.
+- Cada pestaña incluye:
   * selector de fecha;
-  * resumen por proceso;
-  * gráfica del día seleccionado;
-  * comportamiento histórico por variable;
-  * selector para ver una gráfica específica o todas;
-  * puntos fuera de rango destacados;
-  * Desviaciones del día seleccionado;
-  * tablas completas por proceso con frecuencia, rango, 07:00 y 19:00;
-  * botón para cargar un Excel Vapor con la misma estructura.
-- Las observaciones de proceso del Excel también se conservan en las desviaciones cuando corresponden.
+  * resumen por área;
+  * gráficas del día;
+  * histórico por variable;
+  * selector para mostrar todas las gráficas o una específica;
+  * desviaciones del día;
+  * tablas por equipo/variable y por reporte/turno;
+  * botón para cargar otro Excel con la misma estructura.
 
-PTAR
-- Se conserva sin cambios la funcionalidad y datos actuales de PTAR.
-- Fuente esperada: Reporte_Control_PTAR_01-09_al_09-09-2026.xlsx
+ARCHIVOS PRINCIPALES
+- index.html: versión para GitHub Pages.
+- Dashboard_Servicios_COMPRESORES_NH3_REAL.html: versión autocontenida.
+- app.js / estilos.css.
+- aire_fallback.js / nh3_fallback.js.
+- fallbacks existentes de PTAB, PTAR, Vapor y Suavizadores.
+- Historial_Reportes_Compresores_Refrigeracion_WhatsApp.xlsx.
+- Excel existentes de PTAB, PTAR, Vapor y Suavizadores.
 
-APERTURA
-1. Recomendado: abrir Dashboard_Servicios_Vapor_PTAR_08-09.html con doble clic.
-   Los datos de Vapor y PTAR están precargados.
-2. Para GitHub Pages o servidor web, usar index.html y mantener juntos todos los archivos del paquete.
-3. En servidor HTTP/HTTPS, el dashboard intenta leer automáticamente Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx.
+GITHUB PAGES
+Suba todos los archivos del paquete al mismo nivel del repositorio y mantenga index.html en la raíz.

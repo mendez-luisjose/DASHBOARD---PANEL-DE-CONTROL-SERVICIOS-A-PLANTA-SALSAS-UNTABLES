@@ -3,10 +3,11 @@
    Servicios generales: rondas simuladas 07:00, 11:00 y 16:00
    PTAR: datos reales del archivo local, histórico completo por variable, turnos 07:00 y 19:00
    VAPOR: datos reales del archivo local de calderas, histórico completo por variable, turnos 07:00 y 19:00
+   SUAVIZADORES/TANQUES: datos reales del archivo local, ambos turnos impresos a las 06:00
    ========================================================= */
 'use strict';
 
-const C = {agua:'#1B8A5A', vapor:'#C0451B', aire:'#1E63C8', nh3:'#B8860B', ptar:'#456B6B',
+const C = {agua:'#1B8A5A', suav:'#2A7A68', vapor:'#C0451B', aire:'#1E63C8', nh3:'#B8860B', ptar:'#456B6B',
            ink:'#131A20', ok:'#1B8A5A', warn:'#C08307', crit:'#C0392B', line:'#E4E8EC', ink3:'#8B959E'};
 
 /* ---------------------------------------------------------
@@ -66,26 +67,26 @@ const V = {
 
 const SERVICIOS = {
   resumen:{nom:'Resumen de planta', sub:'Lectura consolidada de los servicios de planta', keys:[]},
-  ptab:{nom:'PTAB · Agua suave', sub:'Planta de tratamiento de agua blanda · red de proceso y servicios',
-        color:C.agua, corto:'Agua suave', kpi:'ptab.caudal',
-        keys:['ptab.dureza','ptab.caudal','ptab.presion','ptab.nivel','ptab.cloro','ptab.conduct']},
+  ptab:{nom:'PTAB · Aguas Blancas', sub:'Planta de tratamiento de aguas blancas · agua cruda y agua filtrada',
+        color:C.agua, corto:'PTAB · Aguas Blancas', kpi:null, keys:[]},
+  suav:{nom:'Suavizadores y tanques de agua', sub:'Agua suave de servicios y procesos · control operacional por equipo',
+        color:C.suav, corto:'Suavizadores y tanques', kpi:null, keys:[]},
   vapor:{nom:'Vapor', sub:'Sistema de generación de vapor · alimentación y control operacional de calderas',
         color:C.vapor, corto:'Vapor', kpi:null, keys:[]},
-  aire:{nom:'Aire comprimido', sub:'Sala de compresores · aire de instrumentos y de proceso',
-        color:C.aire, corto:'Aire comprimido', kpi:'aire.presion',
-        keys:['aire.presion','aire.caudal','aire.rocio','aire.kw','aire.esp','aire.tdesc','aire.carga','aire.fugas']},
-  frio:{nom:'Refrigeración y amoníaco', sub:'Sala de máquinas NH₃ · agua helada, cámaras y enfriamiento de proceso',
-        color:C.nh3, corto:'Refrigeración', kpi:'frio.tsum',
-        keys:['frio.tsum','frio.tret','frio.psuc','frio.pdes','frio.carga','frio.cop','frio.nivel','frio.nh3']},
+  aire:{nom:'Compresores de aire', sub:'Compresores y trampas de aire · histórico de reportes operacionales',
+        color:C.aire, corto:'Compresores de aire', kpi:null, keys:[]},
+  frio:{nom:'Refrigeración y amoníaco', sub:'Compresores NH₃, banco de hielo, cavas, condensadores y servicios de refrigeración',
+        color:C.nh3, corto:'Refrigeración · NH₃', kpi:null, keys:[]},
   ptar:{nom:'PTAR', sub:'Planta de tratamiento de aguas residuales · control operacional por procesos',
         color:C.ptar, corto:'PTAR', kpi:null, keys:[]},
 };
 
 const KPI_TABS = {
   ptab:['ptab.dureza','ptab.caudal','ptab.presion','ptab.nivel','ptab.cloro','ptab.conduct'],
+  suav:[],
   vapor:[],
-  aire:['aire.presion','aire.caudal','aire.rocio','aire.kw','aire.esp','aire.tdesc'],
-  frio:['frio.tsum','frio.tret','frio.psuc','frio.pdes','frio.carga','frio.cop'],
+  aire:[],
+  frio:[],
   ptar:[],
 };
 
@@ -831,7 +832,7 @@ function poblarFechasPTAR(){
       sel.addEventListener('change',()=>{
         PTAR_FECHA=sel.value;
         sels.forEach(s=>s.value=PTAR_FECHA);
-        pintarPTAR(); pintarValores(); pintarEncabezado();
+        pintarPTAR(); pintarValores(); pintarEncabezado(); pintarPrioridades();
       });
     }
   });
@@ -969,7 +970,7 @@ function cargarDatosPTAR(rows,fechas,procesos,fuente,tipo='fallback'){
   PTAR_FUENTE=fuente || PTAR_FUENTE;
   poblarFechasPTAR();
   if(document.body && document.body.dataset.dashboardReady==='1'){
-    pintarPTAR(); pintarValores(); pintarEncabezado();
+    pintarPTAR(); pintarValores(); pintarEncabezado(); pintarPrioridades();
   }
 }
 
@@ -1550,6 +1551,7 @@ function poblarFechasVapor(){
         pintarVapor();
         pintarValores();
         pintarEncabezado();
+        pintarPrioridades();
       });
     }
   });
@@ -1945,7 +1947,866 @@ function pintarTablas(){
 }
 
 /* ---------------------------------------------------------
-   9. Construcción de la interfaz
+   9. SUAVIZADORES Y TANQUES DE AGUA · control real desde Excel local
+   Procesos: Agua suave de servicios + Agua suave de procesos
+   Turnos: 1er turno 06:00 y 2do turno 06:00
+   --------------------------------------------------------- */
+const SUAV_TURNOS = ['1er Turno','2do Turno'];
+const SUAV_TURNO_ETIQUETA = {'1er Turno':'1er turno · 06:00','2do Turno':'2do turno · 06:00'};
+let SUAV_PROCESOS = Array.isArray(window.SUAV_FALLBACK_PROCESOS) ? window.SUAV_FALLBACK_PROCESOS : [];
+let SUAV_DATA = [];
+let SUAV_FECHAS = Array.isArray(window.SUAV_FALLBACK_FECHAS) ? [...window.SUAV_FALLBACK_FECHAS] : [];
+let SUAV_FECHA = null;
+let SUAV_FUENTE = 'Reporte_Control_Suavizadores_04-09_al_09-09-2026.xlsx';
+const SUAV_GRAFICA_VAR = {};
+const SUAV_HISTORICO_SEL = {};
+
+const suavVariables = p => p ? (p.puestos || []).flatMap(x=>x.variables || []) : [];
+const suavEsVacio = v => v === null || v === undefined || String(v).trim()==='' || ['—','-','--'].includes(String(v).trim());
+const tieneLecturaSuav = r => !!r && (!suavEsVacio(r.valor) || !suavEsVacio(r.original));
+function suavNumeroLocal(s){ return ptarNumeroLocal(s); }
+function normalizarFechaSuav(v){ return normalizarFechaPTAR(v); }
+function etiquetaFechaSuav(v,larga=false){ return etiquetaFechaPTAR(v,larga); }
+function suavClave(s){ return ptarClave(s); }
+function suavProcesoNombre(s){
+  const k=suavClave(s);
+  if(k==='aguasuaveservicios' || k==='aguasuavedeservicios') return 'Agua suave de servicios';
+  if(k==='aguasuavedeprocesos' || k==='aguasuaveprocesos') return 'Agua suave de procesos';
+  return String(s||'').trim();
+}
+function suavTodasVariables(){ return SUAV_PROCESOS.flatMap(suavVariables); }
+function suavDefPorId(id){ return suavTodasVariables().find(v=>v.id===id) || null; }
+function suavDefPorCampos(proceso,puesto,variable){
+  const kp=suavClave(suavProcesoNombre(proceso)), ke=suavClave(puesto), kv=suavClave(variable);
+  return suavTodasVariables().find(v=>suavClave(v.proceso)===kp && suavClave(v.puesto)===ke && suavClave(v.variable)===kv)
+    || suavTodasVariables().find(v=>suavClave(v.puesto)===ke && suavClave(v.variable)===kv)
+    || null;
+}
+function suavParseRange(rango){
+  let s=String(rango ?? '').trim().replace(/˂/g,'<').replace(/≤/g,'<=').replace(/≥/g,'>=').replace(/[−–—]/g,'-');
+  if(!s || s==='-' || s==='--' || /^kg$/i.test(s)) return {tipo:'none',min:null,max:null};
+  const raw=s.match(/[-+]?\d[\d.,]*/g) || [];
+  const nums=raw.map(suavNumeroLocal).filter(v=>v!==null);
+  if(s.includes('<=') || /(^|[^>])</.test(s)) return {tipo:'max',min:null,max:nums[0] ?? null};
+  if(s.includes('>=') || s.includes('>')) return {tipo:'min',min:nums[0] ?? null,max:null};
+  if(nums.length>=2 && s.includes('-')) return {tipo:'band',min:nums[0],max:nums[1]};
+  return {tipo:'none',min:null,max:null};
+}
+function construirProcesosSuavDesdeFilas(rows){
+  const defs=[], seen=new Map();
+  (rows||[]).forEach(r=>{
+    const proceso=suavProcesoNombre(r.Proceso ?? r.proceso ?? '');
+    const puesto=String(r.Equipo ?? r['Puesto de trabajo'] ?? r.puesto ?? '').trim();
+    const variable=String(r['Variable de Control'] ?? r['Variable de control'] ?? r.Variable ?? r.variable ?? '').trim();
+    if(!proceso || !puesto || !variable) return;
+    const key=[suavClave(proceso),suavClave(puesto),suavClave(variable)].join('|');
+    if(seen.has(key)) return;
+    const rango=String(r['Rango de Operación'] ?? r['Rango Operación'] ?? r.rango ?? '—').trim() || '—';
+    const pr=suavParseRange(rango), unidad=String(r.Unidad ?? r.unidad ?? '').trim();
+    const d={id:`suav_${String(defs.length+1).padStart(2,'0')}`,proceso,puesto,variable,rango,unidad,tipo:pr.tipo,min:pr.min,max:pr.max};
+    defs.push(d); seen.set(key,d);
+  });
+  const ps=[];
+  defs.forEach(v=>{
+    let p=ps.find(x=>x.nombre===v.proceso); if(!p){p={nombre:v.proceso,puestos:[]};ps.push(p);}
+    let e=p.puestos.find(x=>x.nombre===v.puesto); if(!e){e={nombre:v.puesto,variables:[]};p.puestos.push(e);}
+    e.variables.push(v);
+  });
+  return ps;
+}
+function estadoRegistroSuav(r){
+  if(!r || !tieneLecturaSuav(r)) return 'SIN DATO';
+  const src=String(r.estadoFuente||'').toUpperCase();
+  if(src.includes('FUERA DE RANGO')) return 'FUERA DE RANGO';
+  const v=suavDefPorId(r.id);
+  if(!v || v.tipo==='none') return 'INFORMATIVO';
+  const n=suavNumeroLocal(r.valor);
+  if(n===null) return 'SIN DATO';
+  if(v.min!=null && n<Number(v.min)) return 'FUERA DE RANGO';
+  if(v.max!=null && n>Number(v.max)) return 'FUERA DE RANGO';
+  return 'NORMAL';
+}
+function claseEstadoSuav(st){
+  if(st==='FUERA DE RANGO') return 'bad';
+  if(st==='NORMAL') return 'ok';
+  if(st==='INFORMATIVO') return 'info';
+  return 'empty';
+}
+function suavNumeroTexto(n){ return ptarNumeroTexto(n); }
+function valorTextoSuav(r){
+  if(!r || !tieneLecturaSuav(r)) return '—';
+  if(!suavEsVacio(r.original)){
+    if(typeof r.original==='number') return suavNumeroTexto(r.original);
+    return esc(String(r.original));
+  }
+  const n=suavNumeroLocal(r.valor);
+  return n===null ? esc(String(r.valor ?? '—')) : suavNumeroTexto(n);
+}
+function registrosFechaSuav(fecha=SUAV_FECHA,proceso=null){
+  return SUAV_DATA.filter(r=>r.fecha===fecha && (!proceso || r.proceso===proceso));
+}
+function registroSuav(variableId,turno,fecha=SUAV_FECHA){
+  return SUAV_DATA.find(r=>r.fecha===fecha && r.turno===turno && r.id===variableId) || null;
+}
+function operadoresFechaSuav(fecha=SUAV_FECHA){
+  const out={};
+  SUAV_TURNOS.forEach(t=>{
+    const r=SUAV_DATA.find(x=>x.fecha===fecha && x.turno===t && x.operador && tieneLecturaSuav(x));
+    out[t]=r?r.operador:'';
+  });
+  return out;
+}
+function suavStats(proceso=null,fecha=SUAV_FECHA){
+  const p=proceso ? (typeof proceso==='string'?SUAV_PROCESOS.find(x=>x.nombre===proceso):proceso) : null;
+  const vars=p?suavVariables(p):SUAV_PROCESOS.flatMap(suavVariables);
+  const rows=registrosFechaSuav(fecha,p?p.nombre:null);
+  const registradas=rows.filter(tieneLecturaSuav);
+  const controladas=registradas.filter(r=>{const v=suavDefPorId(r.id);return v&&v.tipo!=='none'&&suavNumeroLocal(r.valor)!==null;});
+  const desviaciones=controladas.filter(r=>estadoRegistroSuav(r)==='FUERA DE RANGO').length;
+  const normales=controladas.filter(r=>estadoRegistroSuav(r)==='NORMAL').length;
+  return {variables:vars.length,registradas:registradas.length,controladas:controladas.length,desviaciones,normales,pctNormal:controladas.length?normales/controladas.length*100:0};
+}
+function suavEstado(st){
+  if(!st || !st.registradas) return {st:'idle',txt:'Sin registros'};
+  if(st.desviaciones) return {st:'crit',txt:`${st.desviaciones} fuera de rango`};
+  if(st.controladas) return {st:'ok',txt:'Normal'};
+  return {st:'idle',txt:'Informativo'};
+}
+function suavVariableGrafica(proceso){
+  const vars=suavVariables(proceso); if(!vars.length) return null;
+  const id=SUAV_GRAFICA_VAR[proceso.nombre]; if(id){const f=vars.find(v=>v.id===id);if(f)return f;}
+  const conDatoControl=vars.find(v=>v.tipo!=='none'&&SUAV_TURNOS.some(t=>{const r=registroSuav(v.id,t);return r&&suavNumeroLocal(r.valor)!==null;}));
+  const conDato=vars.find(v=>SUAV_TURNOS.some(t=>{const r=registroSuav(v.id,t);return r&&suavNumeroLocal(r.valor)!==null;}));
+  const candidata=conDatoControl||conDato||vars.find(v=>v.tipo!=='none')||vars[0];
+  SUAV_GRAFICA_VAR[proceso.nombre]=candidata.id; return candidata;
+}
+function suavLimitesGrafica(v,valores){
+  let nums=(valores||[]).map(suavNumeroLocal).filter(x=>x!==null);
+  if(v&&v.min!=null) nums.push(Number(v.min)); if(v&&v.max!=null) nums.push(Number(v.max));
+  if(!nums.length) return {lo:0,hi:1};
+  let lo=Math.min(...nums),hi=Math.max(...nums);
+  if(v&&v.tipo==='max'&&lo>=0) lo=0;
+  if(lo===hi){const p=Math.abs(lo)*.15||1;lo-=p;hi+=p;} else {const p=(hi-lo)*.12;lo-=p;hi+=p;}
+  if(lo>=0)lo=Math.max(0,lo); return {lo,hi};
+}
+function suavEjes(v,valores,W=640,H=235){
+  const pad={t:18,r:18,b:38,l:62},lim=suavLimitesGrafica(v,valores),span=lim.hi-lim.lo||1;
+  const y=n=>pad.t+(lim.hi-Number(n))/span*(H-pad.t-pad.b); let svg='';
+  for(let i=0;i<=4;i++){const val=lim.lo+span*i/4,yy=y(val);svg+=`<line x1="${pad.l}" y1="${yy.toFixed(1)}" x2="${W-pad.r}" y2="${yy.toFixed(1)}" stroke="${C.line}" stroke-width="1"/><text x="${pad.l-8}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10.2" fill="${C.ink3}">${esc(suavNumeroTexto(val))}</text>`;}
+  if(v&&v.tipo==='band'&&v.min!=null&&v.max!=null){const ya=y(v.max),yb=y(v.min);svg+=`<rect x="${pad.l}" y="${Math.min(ya,yb).toFixed(1)}" width="${W-pad.l-pad.r}" height="${Math.abs(yb-ya).toFixed(1)}" fill="${C.suav}" opacity=".08"/><line x1="${pad.l}" y1="${ya.toFixed(1)}" x2="${W-pad.r}" y2="${ya.toFixed(1)}" stroke="${C.suav}" stroke-width="1" stroke-dasharray="4 4" opacity=".75"/><line x1="${pad.l}" y1="${yb.toFixed(1)}" x2="${W-pad.r}" y2="${yb.toFixed(1)}" stroke="${C.suav}" stroke-width="1" stroke-dasharray="4 4" opacity=".75"/>`;}
+  else if(v&&v.tipo==='max'&&v.max!=null){const yy=y(v.max);svg+=`<line x1="${pad.l}" y1="${yy.toFixed(1)}" x2="${W-pad.r}" y2="${yy.toFixed(1)}" stroke="${C.crit}" stroke-width="1.2" stroke-dasharray="5 4"/><text x="${W-pad.r-3}" y="${(yy-5).toFixed(1)}" text-anchor="end" font-size="10" fill="${C.crit}">máx. ${esc(suavNumeroTexto(v.max))}</text>`;}
+  else if(v&&v.tipo==='min'&&v.min!=null){const yy=y(v.min);svg+=`<line x1="${pad.l}" y1="${yy.toFixed(1)}" x2="${W-pad.r}" y2="${yy.toFixed(1)}" stroke="${C.crit}" stroke-width="1.2" stroke-dasharray="5 4"/><text x="${W-pad.r-3}" y="${(yy-5).toFixed(1)}" text-anchor="end" font-size="10" fill="${C.crit}">mín. ${esc(suavNumeroTexto(v.min))}</text>`;}
+  return {svg,y,pad,W,H};
+}
+function renderSuavDia(host,proceso,v){
+  if(!host||!v)return;
+  const regs=SUAV_TURNOS.map(t=>registroSuav(v.id,t)),vals=regs.map(r=>r?suavNumeroLocal(r.valor):null).filter(x=>x!==null);
+  if(!vals.length){host.innerHTML=`<div class="ptar-chart-empty">Sin lecturas numéricas de ${esc(v.variable)} para ${etiquetaFechaSuav(SUAV_FECHA,true)}.</div>`;return;}
+  const ax=suavEjes(v,vals),{W,H,pad,y}=ax,xs=[pad.l+90,W-pad.r-90];let g=ax.svg,pts=[];
+  regs.forEach((r,i)=>{const x=xs[i],label=i===0?'1er turno':'2do turno';g+=`<text x="${x}" y="${H-10}" text-anchor="middle" font-size="10.5" fill="${C.ink3}">${label}</text>`;const val=r?suavNumeroLocal(r.valor):null;if(val===null)return;const yy=y(val),st=estadoRegistroSuav(r),color=st==='FUERA DE RANGO'?C.crit:C.suav;pts.push([x,yy]);const orig=!suavEsVacio(r.original)?` · original ${String(r.original)}`:'';g+=`<circle cx="${x}" cy="${yy.toFixed(1)}" r="${st==='FUERA DE RANGO'?5:4}" fill="${color}" stroke="#fff" stroke-width="1.5"><title>${esc(SUAV_TURNO_ETIQUETA[SUAV_TURNOS[i]]+' · '+suavNumeroTexto(val)+(v.unidad?' '+v.unidad:'')+orig+' · '+st)}</title></circle><text x="${x}" y="${Math.max(pad.t+12,yy-8).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="${color}">${esc(suavNumeroTexto(val))}</text>`;});
+  if(pts.length>1)g+=`<path d="M${pts[0][0]} ${pts[0][1].toFixed(1)} L${pts[1][0]} ${pts[1][1].toFixed(1)}" fill="none" stroke="${C.suav}" stroke-width="2" opacity=".75"/>`;
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(v.variable+' del día')}">${g}</svg>`;
+}
+function registrosHistoricosVariableSuav(v){
+  const ord=t=>t==='1er Turno'?0:(t==='2do Turno'?1:2);
+  return SUAV_DATA.filter(r=>r.id===v.id&&suavNumeroLocal(r.valor)!==null).slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)||ord(a.turno)-ord(b.turno));
+}
+function resumenDesviacionesHistoricasSuav(v){const rows=registrosHistoricosVariableSuav(v),devs=rows.filter(r=>estadoRegistroSuav(r)==='FUERA DE RANGO');return {rows,devs,fechas:[...new Set(rows.map(r=>r.fecha))].sort()};}
+function renderSuavHistoricoCompleto(host,v){
+  if(!host||!v)return;const info=resumenDesviacionesHistoricasSuav(v),rows=info.rows,fechas=info.fechas,vals=rows.map(r=>suavNumeroLocal(r.valor)).filter(x=>x!==null);
+  if(!vals.length){host.innerHTML=`<div class="ptar-chart-empty">Sin registros históricos numéricos de ${esc(v.variable)} en el archivo.</div>`;return;}
+  const W=760,H=255,ax=suavEjes(v,vals,W,H),{pad,y}=ax,x=i=>fechas.length<2?(pad.l+(W-pad.r))/2:pad.l+i*(W-pad.l-pad.r)/(fechas.length-1);let g=ax.svg;
+  fechas.forEach((f,i)=>{g+=`<text x="${x(i).toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="9.4" fill="${C.ink3}">${esc(etiquetaFechaSuav(f))}</text>`;});
+  SUAV_TURNOS.forEach((turn,si)=>{const color=si===0?C.suav:C.ink,pts=[];fechas.forEach((f,i)=>{const r=registroSuav(v.id,turn,f),val=r?suavNumeroLocal(r.valor):null;if(val!==null)pts.push([x(i),y(val),r,val]);});if(pts.length>1){const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');g+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity=".9"/>`;}pts.forEach(p=>{const st=estadoRegistroSuav(p[2]),fuera=st==='FUERA DE RANGO',pc=fuera?C.crit:color;g+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${fuera?5.2:3.6}" fill="${pc}" stroke="#fff" stroke-width="${fuera?1.7:1.2}"><title>${esc(etiquetaFechaSuav(p[2].fecha,true)+' · '+SUAV_TURNO_ETIQUETA[turn]+' · '+suavNumeroTexto(p[3])+(v.unidad?' '+v.unidad:'')+' · '+st)}</title></circle>`;});});
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc('Histórico completo · '+v.variable)}">${g}</svg><div class="ptar-chart-legend"><span><i style="--k:${C.suav}"></i>1er turno · 06:00</span><span><i style="--k:${C.ink}"></i>2do turno · 06:00</span><span><i style="--k:${C.crit}"></i>Fuera de rango</span><span class="ptar-chart-range">${esc(v.rango||'Sin rango definido')}</span></div>`;
+}
+function textoDesviacionesHistoricasSuav(v,limit=4){const devs=resumenDesviacionesHistoricasSuav(v).devs;if(!devs.length)return '';const partes=devs.slice(0,limit).map(r=>`${etiquetaFechaSuav(r.fecha)} ${r.turno} · ${valorTextoSuav(r)}${v.unidad?' '+v.unidad:''}`);return partes.join(' · ')+(devs.length>limit?` · +${devs.length-limit} más`:'');}
+function suavSeleccionHistorico(p){const vars=suavVariables(p),actual=SUAV_HISTORICO_SEL[p.nombre]||'__all__';if(actual==='__all__'||vars.some(v=>v.id===actual))return actual;SUAV_HISTORICO_SEL[p.nombre]='__all__';return '__all__';}
+function pintarGraficasSuav(){
+  const host=document.getElementById('suav-graficas-procesos');if(!host||!SUAV_PROCESOS.length)return;
+  host.innerHTML=SUAV_PROCESOS.map((p,pi)=>{const todas=suavVariables(p),v=suavVariableGrafica(p),opciones=todas.map(x=>`<option value="${esc(x.id)}"${x.id===v.id?' selected':''}>${esc(x.variable)} · ${esc(x.puesto)}</option>`).join(''),histSel=suavSeleccionHistorico(p),opHist=`<option value="__all__"${histSel==='__all__'?' selected':''}>Todas las gráficas</option>`+todas.map(x=>`<option value="${esc(x.id)}"${x.id===histSel?' selected':''}>${esc(x.variable)} · ${esc(x.puesto)}</option>`).join(''),varsHist=histSel==='__all__'?todas:todas.filter(x=>x.id===histSel),historicos=varsHist.map(hv=>{const vi=todas.findIndex(x=>x.id===hv.id),info=resumenDesviacionesHistoricasSuav(hv),nReg=info.rows.length,nDias=info.fechas.length,nDev=info.devs.length,multiple=info.rows.some(r=>typeof r.original==='string'&&r.original.includes('/'));const badge=nReg?(nDev?`<span class="pill crit"><i></i>${nDev} fuera de rango</span>`:`<span class="pill ${hv.tipo==='none'?'idle':'ok'}"><i></i>${hv.tipo==='none'?'Informativo':'Sin desviaciones'}</span>`):`<span class="pill idle"><i></i>Sin registros</span>`;return `<article class="ptar-history-var-card ${nDev?'has-history-dev':''}" aria-labelledby="suav-hist-${pi}-${vi}"><div class="ptar-history-var-head"><div class="ptar-history-var-title"><h5 id="suav-hist-${pi}-${vi}">${esc(hv.variable)}</h5><div class="ptar-history-var-meta"><span>${esc(hv.puesto)}</span><span>Rango: ${esc(hv.rango||'—')}</span>${hv.unidad?`<span>Unidad: ${esc(hv.unidad)}</span>`:''}<span>${nReg} lectura${nReg===1?'':'s'} · ${nDias} día${nDias===1?'':'s'} con registro</span>${multiple?'<span>Gráfica: promedio de lecturas múltiples</span>':''}</div></div>${badge}</div><div class="ptar-process-chart ptar-history-chart" data-suav-chart-history="${pi}-${vi}"></div>${nDev?`<div class="ptar-history-dev-note"><b>Desviaciones:</b> ${esc(textoDesviacionesHistoricasSuav(hv))}</div>`:''}</article>`;}).join('');
+    return `<section class="card ptar-chart-process-card suav-theme ptar-process-charts" aria-labelledby="suav-chart-${pi}"><div class="card-h"><div><h3 id="suav-chart-${pi}">${esc(p.nombre)}</h3><span class="ptar-process-chart-sub">${todas.length} variables · histórico completo según días con registro</span></div><label class="ptar-chart-selector">Variable para lectura del día<select data-suav-chart-process="${pi}" aria-label="Variable del día a graficar de ${esc(p.nombre)}">${opciones}</select></label></div><div class="card-b"><div class="ptar-day-block"><div class="ptar-chart-meta"><strong>${esc(v.variable)}</strong><span>${esc(v.puesto)}</span><span>Rango: ${esc(v.rango||'—')}</span>${v.unidad?`<span>Unidad: ${esc(v.unidad)}</span>`:''}</div><div class="ptar-chart-panel ptar-day-panel"><div class="ptar-chart-panel-h"><h4>Lecturas del día seleccionado</h4><span class="sub">${etiquetaFechaSuav(SUAV_FECHA,true)} · 1er y 2do turno a las 06:00</span></div><div class="ptar-process-chart" data-suav-chart-day="${pi}"></div></div></div><div class="ptar-all-history"><div class="ptar-all-history-h"><div><h4>Comportamiento histórico de todas las variables</h4><p>Selecciona una gráfica específica o muestra todas las variables del proceso.</p></div><div class="history-toolbar"><label class="history-chart-selector">Gráfica a visualizar<select data-suav-history-selector="${pi}" aria-label="Gráfica histórica a visualizar de ${esc(p.nombre)}">${opHist}</select></label><span class="ptar-history-key"><i></i>Los puntos rojos indican lecturas fuera del rango de operación.</span></div></div><div class="ptar-history-grid ${histSel==='__all__'?'':'is-single'}">${historicos}</div></div></div></section>`;
+  }).join('');
+  SUAV_PROCESOS.forEach((p,pi)=>{const todas=suavVariables(p),v=suavVariableGrafica(p),histSel=suavSeleccionHistorico(p);renderSuavDia(host.querySelector(`[data-suav-chart-day="${pi}"]`),p,v);(histSel==='__all__'?todas:todas.filter(x=>x.id===histSel)).forEach(hv=>{const vi=todas.findIndex(x=>x.id===hv.id);renderSuavHistoricoCompleto(host.querySelector(`[data-suav-chart-history="${pi}-${vi}"]`),hv);});});
+  host.querySelectorAll('[data-suav-chart-process]').forEach(sel=>sel.addEventListener('change',()=>{const p=SUAV_PROCESOS[Number(sel.dataset.suavChartProcess)];if(p){SUAV_GRAFICA_VAR[p.nombre]=sel.value;pintarGraficasSuav();}}));
+  host.querySelectorAll('[data-suav-history-selector]').forEach(sel=>sel.addEventListener('change',()=>{const p=SUAV_PROCESOS[Number(sel.dataset.suavHistorySelector)];if(p){SUAV_HISTORICO_SEL[p.nombre]=sel.value;pintarGraficasSuav();}}));
+}
+function poblarFechasSuav(){
+  const sels=[document.getElementById('suav-date-select'),document.getElementById('suav-summary-date-select')].filter(Boolean);
+  sels.forEach(sel=>{sel.innerHTML=SUAV_FECHAS.map(f=>`<option value="${f}">${etiquetaFechaSuav(f,true)}</option>`).join('');sel.value=SUAV_FECHA||'';if(!sel.dataset.bound){sel.dataset.bound='1';sel.addEventListener('change',()=>{SUAV_FECHA=sel.value;sels.forEach(s=>s.value=SUAV_FECHA);pintarSuav();pintarValores();pintarEncabezado();pintarPrioridades();});}});
+}
+function pintarDesviacionesSuav(){
+  const host=document.getElementById('suav-desviaciones'),count=document.getElementById('suav-desv-count');if(!host)return;
+  const list=registrosFechaSuav().filter(r=>estadoRegistroSuav(r)==='FUERA DE RANGO');if(count)count.textContent=list.length?`${list.length} detectada${list.length===1?'':'s'}`:'ninguna';
+  host.innerHTML=list.length?list.map(r=>{const v=suavDefPorId(r.id);return `<div class="ptar-dev"><span class="bar" style="background:${C.crit}"></span><div class="body"><div class="title">${esc(r.variable)} · ${valorTextoSuav(r)}${v&&v.unidad?' '+esc(v.unidad):''}</div><div class="meta">${esc(r.proceso)} · ${esc(r.puesto)} · rango ${esc(r.rango||'—')}</div>${r.operador?`<div class="obs">Operador: ${esc(r.operador)}</div>`:''}${r.observacion?`<div class="obs">${esc(r.observacion)}</div>`:''}</div><time>${esc(SUAV_TURNO_ETIQUETA[r.turno]||r.turno)}</time></div>`;}).join(''):`<p class="empty">No hay variables registradas fuera de rango el ${etiquetaFechaSuav(SUAV_FECHA,true)}.</p>`;
+}
+function pintarSuav(){
+  if(!SUAV_PROCESOS.length)return;poblarFechasSuav();const total=suavStats(),eTotal=suavEstado(total);
+  document.querySelectorAll('[data-suav-summary-count]').forEach(el=>el.textContent=String(total.registradas));
+  const sumPill=document.querySelector('[data-suav-summary-pill]');if(sumPill){sumPill.className='pill '+eTotal.st;sumPill.innerHTML='<i></i>'+esc(eTotal.txt);}
+  const stripVal=document.querySelector('[data-suav-strip-value]');if(stripVal)stripVal.textContent=String(total.desviaciones);
+  const stripPill=document.querySelector('[data-suav-strip-pill]');if(stripPill){stripPill.className='pill '+eTotal.st;stripPill.innerHTML='<i></i>'+esc(eTotal.txt);}
+  const resumen=document.getElementById('suav-resumen-procesos');if(resumen)resumen.innerHTML=SUAV_PROCESOS.map(p=>{const st=suavStats(p),e=suavEstado(st);return `<div class="ptar-summary-process"><div class="ptar-summary-process-h"><strong>${esc(p.nombre)}</strong><span class="pill ${e.st}"><i></i>${esc(e.txt)}</span></div><div class="ptar-summary-process-v"><b>${st.variables}</b> variables · ${st.registradas} lecturas · ${st.desviaciones} fuera</div><div class="ptar-progress"><i style="width:${st.controladas?st.pctNormal.toFixed(1):0}%"></i></div></div>`;}).join('');
+  const kpis=document.getElementById('suav-kpis-proceso');if(kpis)kpis.innerHTML=SUAV_PROCESOS.map(p=>{const st=suavStats(p),e=suavEstado(st);return `<div class="kpi suav-process-kpi"><div class="lbl"><span>${esc(p.nombre)}</span><span class="pill ${e.st}" style="margin-left:auto"><i></i>${esc(e.txt)}</span></div><div class="v tnum">${st.registradas}<small>lecturas</small></div><div class="rng">${st.variables} variables · ${st.controladas} con rango evaluadas</div><div class="ptar-progress"><i style="width:${st.controladas?st.pctNormal.toFixed(1):0}%"></i></div></div>`;}).join('');
+  const host=document.getElementById('suav-procesos');if(host){const ops=operadoresFechaSuav();host.innerHTML=SUAV_PROCESOS.map((p,pi)=>{const st=suavStats(p),e=suavEstado(st);const rows=(p.puestos||[]).map(puesto=>(puesto.variables||[]).map((v,i)=>{const puestoCell=i===0?`<td class="ptar-puesto" rowspan="${puesto.variables.length}">${esc(puesto.nombre)}</td>`:'';const regs=SUAV_TURNOS.map(t=>registroSuav(v.id,t)),dev=regs.some(r=>estadoRegistroSuav(r)==='FUERA DE RANGO'),cells=regs.map(r=>{const est=estadoRegistroSuav(r);return `<td class="num ptar-lectura ${claseEstadoSuav(est)}" title="${esc(est)}">${valorTextoSuav(r)}</td>`;}).join('');return `<tr class="${dev?'has-dev':''}">${puestoCell}<td>${esc(v.variable)}</td><td class="ptar-rango tnum">${esc(v.rango||'—')}</td>${cells}</tr>`;}).join('')).join('');return `<section class="card ptar-process-card suav-theme" aria-labelledby="suav-proceso-${pi}"><div class="card-h"><h3 id="suav-proceso-${pi}">${esc(p.nombre)}</h3><span class="pill ${e.st}"><i></i>${esc(e.txt)}</span><span class="note">${etiquetaFechaSuav(SUAV_FECHA,true)} · ${st.registradas} lecturas</span></div><div class="card-b ptar-table-wrap"><table class="tbl ptar-table suav-real-table"><thead><tr><th>Equipo</th><th>Variable de control</th><th class="num">Rango de operación</th><th class="num">1er turno · 06:00${ops['1er Turno']?`<small>${esc(ops['1er Turno'])}</small>`:''}</th><th class="num">2do turno · 06:00${ops['2do Turno']?`<small>${esc(ops['2do Turno'])}</small>`:''}</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;}).join('');}
+  pintarGraficasSuav();pintarDesviacionesSuav();
+}
+function normalizarFilasSuav(rows){
+  if(!SUAV_PROCESOS.length)SUAV_PROCESOS=construirProcesosSuavDesdeFilas(rows);
+  return (rows||[]).map(r=>{const proceso=suavProcesoNombre(r.Proceso??r.proceso??''),puesto=String(r.Equipo??r['Puesto de trabajo']??r.puesto??'').trim(),variable=String(r['Variable de Control']??r['Variable de control']??r.Variable??r.variable??'').trim();let id=String(r.VariableId??r.id??'').trim(),def=id?suavDefPorId(id):suavDefPorCampos(proceso,puesto,variable);if(!def)return null;id=def.id;const rawNum=r['Valor numérico / promedio']??r.Valor??r.valor,orig=r['Valor original']??r.valorOriginal??rawNum,num=suavNumeroLocal(rawNum);return {fecha:normalizarFechaSuav(r.Fecha??r.fecha),turno:String(r.Turno??r.turno??'').trim(),hora:String(r['Hora impresa']??r.Hora??r.hora??'').trim(),operador:String(r.Operador??r.operador??'').trim(),proceso:def.proceso,puesto:def.puesto,variable:def.variable,rango:def.rango,valor:num!==null?num:null,original:orig,unidad:def.unidad||String(r.Unidad??r.unidad??'').trim(),tipo:def.tipo,min:def.min,max:def.max,estadoFuente:String(r.Estado??r['Estado Fuente']??r.estado??'').trim(),observacion:String(r.Observación??r.Observacion??r.observacion??'').trim(),fuente:String(r.Fuente??r.fuente??'').trim(),id};}).filter(r=>r&&r.fecha&&r.turno&&r.id);
+}
+function cargarDatosSuav(rows,fechas,procesos,fuente){
+  if(procesos&&procesos.length)SUAV_PROCESOS=procesos;const norm=normalizarFilasSuav(rows);if(!norm.length)throw new Error('El archivo no contiene registros válidos de Suavizadores y Tanques.');SUAV_DATA=norm;const dataFechas=[...new Set(norm.map(r=>r.fecha))].sort();SUAV_FECHAS=(fechas&&fechas.length?[...new Set(fechas)]:dataFechas).sort();const ult=dataFechas.filter(f=>registrosFechaSuav(f).some(tieneLecturaSuav)).slice(-1)[0]||SUAV_FECHAS[SUAV_FECHAS.length-1]||null;if(!SUAV_FECHA||!SUAV_FECHAS.includes(SUAV_FECHA)||!registrosFechaSuav(SUAV_FECHA).some(tieneLecturaSuav))SUAV_FECHA=ult;SUAV_FUENTE=fuente||SUAV_FUENTE;poblarFechasSuav();if(document.body&&document.body.dataset.dashboardReady==='1'){pintarSuav();pintarValores();pintarEncabezado();pintarPrioridades();}
+}
+async function leerExcelSuav(buffer){
+  const zip=await abrirZipPTAR(buffer),parser=new DOMParser(),wbXml=parser.parseFromString(await zip.text('xl/workbook.xml'),'application/xml'),relXml=parser.parseFromString(await zip.text('xl/_rels/workbook.xml.rels'),'application/xml'),rels=[...relXml.getElementsByTagNameNS('*','Relationship')];let shared=[];if(zip.entries.has('xl/sharedStrings.xml')){const ssXml=parser.parseFromString(await zip.text('xl/sharedStrings.xml'),'application/xml');shared=[...ssXml.getElementsByTagNameNS('*','si')].map(si=>[...si.getElementsByTagNameNS('*','t')].map(t=>t.textContent||'').join(''));}const sheets=[...wbXml.getElementsByTagNameNS('*','sheet')],sheet=sheets.find(s=>s.getAttribute('name')==='Control');if(!sheet)throw new Error('No existe la hoja "Control" en el archivo de Suavizadores.');const rid=sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id')||sheet.getAttribute('r:id'),rel=rels.find(r=>r.getAttribute('Id')===rid);if(!rel)throw new Error('No se pudo resolver la hoja Control.');let target=rel.getAttribute('Target').replace(/^\//,'');if(!target.startsWith('xl/'))target='xl/'+target.replace(/^\.\//,'');const rows=await leerHojaXLSXPTAR(zip,target,shared);if(!rows.length)throw new Error('La hoja Control está vacía.');const headers=rows[0].map(x=>String(x??'').trim());return rows.slice(1).filter(r=>r.some(v=>v!==''&&v!==null&&v!==undefined)).map(r=>{const o={};headers.forEach((h,i)=>{if(h)o[h]=r[i]??'';});return o;});
+}
+async function cargarExcelSuavArchivo(file,origen='archivo seleccionado'){const rows=await leerExcelSuav(await file.arrayBuffer());cargarDatosSuav(rows,[],[],`${file.name} · ${rows.length} filas de control · ${origen}`);}
+async function cargarSuavAutomatico(){if(location.protocol==='file:')return;try{const resp=await fetch('Reporte_Control_Suavizadores_04-09_al_09-09-2026.xlsx',{cache:'no-store'});if(!resp.ok)throw new Error('HTTP '+resp.status);const rows=await leerExcelSuav(await resp.arrayBuffer());cargarDatosSuav(rows,[],[],`Reporte_Control_Suavizadores_04-09_al_09-09-2026.xlsx · ${rows.length} filas de control · carga automática`);}catch(err){}}
+function inicializarSuavExcel(){const input=document.getElementById('suav-excel-input');if(input&&!input.dataset.bound){input.dataset.bound='1';input.addEventListener('change',async()=>{const file=input.files&&input.files[0];if(!file)return;try{await cargarExcelSuavArchivo(file);}catch(err){alert('No se pudo leer el Excel de Suavizadores y Tanques: '+err.message);}finally{input.value='';}});}cargarSuavAutomatico();}
+if(window.SUAV_FALLBACK_DATA&&window.SUAV_FALLBACK_DATA.length){cargarDatosSuav(window.SUAV_FALLBACK_DATA,window.SUAV_FALLBACK_FECHAS||[],window.SUAV_FALLBACK_PROCESOS||[],'Reporte_Control_Suavizadores_04-09_al_09-09-2026.xlsx · datos precargados para apertura local');}
+
+
+
+/* ---------------------------------------------------------
+   9A. PTAB · AGUAS BLANCAS · control real desde Excel local
+   Procesos: Agua cruda + Agua filtrada
+   Turnos: 1er turno 06:00 am y 2do turno 06:00 pm
+   --------------------------------------------------------- */
+const PTABR_TURNOS = ['1er Turno','2do Turno'];
+const PTABR_TURNO_ETIQUETA = {'1er Turno':'1er turno · 06:00 am','2do Turno':'2do turno · 06:00 pm'};
+let PTABR_PROCESOS = Array.isArray(window.PTABR_FALLBACK_PROCESOS) ? window.PTABR_FALLBACK_PROCESOS : [];
+let PTABR_DATA = [];
+let PTABR_FECHAS = Array.isArray(window.PTABR_FALLBACK_FECHAS) ? [...window.PTABR_FALLBACK_FECHAS] : [];
+let PTABR_FECHA = null;
+let PTABR_FUENTE = 'Reporte_Control_PTAB_04-09_al_09-09-2026.xlsx';
+const PTABR_GRAFICA_VAR = {};
+const PTABR_HISTORICO_SEL = {};
+
+const ptabrVariables = p => p ? (p.puestos || []).flatMap(x=>x.variables || []) : [];
+const ptabrEsVacio = v => v === null || v === undefined || String(v).trim()==='' || ['—','-','--'].includes(String(v).trim());
+const tieneLecturaPtabr = r => !!r && (!ptabrEsVacio(r.valor) || !ptabrEsVacio(r.original));
+function ptabrNumeroLocal(s){ return ptarNumeroLocal(s); }
+function normalizarFechaPtabr(v){ return normalizarFechaPTAR(v); }
+function etiquetaFechaPtabr(v,larga=false){ return etiquetaFechaPTAR(v,larga); }
+function ptabrClave(s){ return ptarClave(s); }
+function ptabrProcesoNombre(s){
+  const k=ptabrClave(s);
+  if(k==='aguacruda') return 'Agua cruda';
+  if(k==='aguafiltrada') return 'Agua filtrada';
+  return String(s||'').trim();
+}
+function ptabrTodasVariables(){ return PTABR_PROCESOS.flatMap(ptabrVariables); }
+function ptabrDefPorId(id){ return ptabrTodasVariables().find(v=>v.id===id) || null; }
+function ptabrDefPorCampos(proceso,puesto,variable){
+  const kp=ptabrClave(ptabrProcesoNombre(proceso)), ke=ptabrClave(puesto), kv=ptabrClave(variable);
+  return ptabrTodasVariables().find(v=>ptabrClave(v.proceso)===kp && ptabrClave(v.puesto)===ke && ptabrClave(v.variable)===kv)
+    || ptabrTodasVariables().find(v=>ptabrClave(v.puesto)===ke && ptabrClave(v.variable)===kv)
+    || null;
+}
+function ptabrParseRange(rango){
+  let s=String(rango ?? '').trim().replace(/˂/g,'<').replace(/≤/g,'<=').replace(/≥/g,'>=').replace(/[−–—]/g,'-');
+  if(!s || s==='-' || s==='--' || /^kg$/i.test(s)) return {tipo:'none',min:null,max:null};
+  const raw=s.match(/[-+]?\d[\d.,]*/g) || [];
+  const nums=raw.map(ptabrNumeroLocal).filter(v=>v!==null);
+  if(s.includes('<=') || /(^|[^>])</.test(s)) return {tipo:'max',min:null,max:nums[0] ?? null};
+  if(s.includes('>=') || s.includes('>')) return {tipo:'min',min:nums[0] ?? null,max:null};
+  if(nums.length>=2 && s.includes('-')) return {tipo:'band',min:nums[0],max:nums[1]};
+  return {tipo:'none',min:null,max:null};
+}
+function construirProcesosPtabrDesdeFilas(rows){
+  const defs=[], seen=new Map();
+  (rows||[]).forEach(r=>{
+    const proceso=ptabrProcesoNombre(r.Proceso ?? r.proceso ?? '');
+    const puesto=String(r.Equipo ?? r['Puesto de trabajo'] ?? r.puesto ?? '').trim();
+    const variable=String(r['Variable de Control'] ?? r['Variable de control'] ?? r.Variable ?? r.variable ?? '').trim();
+    if(!proceso || !puesto || !variable) return;
+    const key=[ptabrClave(proceso),ptabrClave(puesto),ptabrClave(variable)].join('|');
+    if(seen.has(key)) return;
+    const rango=String(r['Rango de Operación'] ?? r['Rango Operación'] ?? r.rango ?? '—').trim() || '—';
+    const pr=ptabrParseRange(rango), unidad=String(r.Unidad ?? r.unidad ?? '').trim();
+    const d={id:`ptab_${String(defs.length+1).padStart(2,'0')}`,proceso,puesto,variable,rango,unidad,tipo:pr.tipo,min:pr.min,max:pr.max};
+    defs.push(d); seen.set(key,d);
+  });
+  const ps=[];
+  defs.forEach(v=>{
+    let p=ps.find(x=>x.nombre===v.proceso); if(!p){p={nombre:v.proceso,puestos:[]};ps.push(p);}
+    let e=p.puestos.find(x=>x.nombre===v.puesto); if(!e){e={nombre:v.puesto,variables:[]};p.puestos.push(e);}
+    e.variables.push(v);
+  });
+  return ps;
+}
+function estadoRegistroPtabr(r){
+  if(!r || !tieneLecturaPtabr(r)) return 'SIN DATO';
+  const src=String(r.estadoFuente||'').toUpperCase();
+  if(src.includes('FUERA DE RANGO')) return 'FUERA DE RANGO';
+  const v=ptabrDefPorId(r.id);
+  if(!v || v.tipo==='none') return 'INFORMATIVO';
+  const n=ptabrNumeroLocal(r.valor);
+  if(n===null) return 'SIN DATO';
+  if(v.min!=null && n<Number(v.min)) return 'FUERA DE RANGO';
+  if(v.max!=null && n>Number(v.max)) return 'FUERA DE RANGO';
+  return 'NORMAL';
+}
+function claseEstadoPtabr(st){
+  if(st==='FUERA DE RANGO') return 'bad';
+  if(st==='NORMAL') return 'ok';
+  if(st==='INFORMATIVO') return 'info';
+  return 'empty';
+}
+function ptabrNumeroTexto(n){ return ptarNumeroTexto(n); }
+function valorTextoPtabr(r){
+  if(!r || !tieneLecturaPtabr(r)) return '—';
+  if(!ptabrEsVacio(r.original)){
+    if(typeof r.original==='number') return ptabrNumeroTexto(r.original);
+    return esc(String(r.original));
+  }
+  const n=ptabrNumeroLocal(r.valor);
+  return n===null ? esc(String(r.valor ?? '—')) : ptabrNumeroTexto(n);
+}
+function registrosFechaPtabr(fecha=PTABR_FECHA,proceso=null){
+  return PTABR_DATA.filter(r=>r.fecha===fecha && (!proceso || r.proceso===proceso));
+}
+function registroPtabr(variableId,turno,fecha=PTABR_FECHA){
+  return PTABR_DATA.find(r=>r.fecha===fecha && r.turno===turno && r.id===variableId) || null;
+}
+function operadoresFechaPtabr(fecha=PTABR_FECHA){
+  const out={};
+  PTABR_TURNOS.forEach(t=>{
+    const r=PTABR_DATA.find(x=>x.fecha===fecha && x.turno===t && x.operador && tieneLecturaPtabr(x));
+    out[t]=r?r.operador:'';
+  });
+  return out;
+}
+function ptabrStats(proceso=null,fecha=PTABR_FECHA){
+  const p=proceso ? (typeof proceso==='string'?PTABR_PROCESOS.find(x=>x.nombre===proceso):proceso) : null;
+  const vars=p?ptabrVariables(p):PTABR_PROCESOS.flatMap(ptabrVariables);
+  const rows=registrosFechaPtabr(fecha,p?p.nombre:null);
+  const registradas=rows.filter(tieneLecturaPtabr);
+  const controladas=registradas.filter(r=>{const v=ptabrDefPorId(r.id);return v&&v.tipo!=='none'&&ptabrNumeroLocal(r.valor)!==null;});
+  const desviaciones=controladas.filter(r=>estadoRegistroPtabr(r)==='FUERA DE RANGO').length;
+  const normales=controladas.filter(r=>estadoRegistroPtabr(r)==='NORMAL').length;
+  return {variables:vars.length,registradas:registradas.length,controladas:controladas.length,desviaciones,normales,pctNormal:controladas.length?normales/controladas.length*100:0};
+}
+function ptabrEstado(st){
+  if(!st || !st.registradas) return {st:'idle',txt:'Sin registros'};
+  if(st.desviaciones) return {st:'crit',txt:`${st.desviaciones} fuera de rango`};
+  if(st.controladas) return {st:'ok',txt:'Normal'};
+  return {st:'idle',txt:'Informativo'};
+}
+function ptabrVariableGrafica(proceso){
+  const vars=ptabrVariables(proceso); if(!vars.length) return null;
+  const id=PTABR_GRAFICA_VAR[proceso.nombre]; if(id){const f=vars.find(v=>v.id===id);if(f)return f;}
+  const conDatoControl=vars.find(v=>v.tipo!=='none'&&PTABR_TURNOS.some(t=>{const r=registroPtabr(v.id,t);return r&&ptabrNumeroLocal(r.valor)!==null;}));
+  const conDato=vars.find(v=>PTABR_TURNOS.some(t=>{const r=registroPtabr(v.id,t);return r&&ptabrNumeroLocal(r.valor)!==null;}));
+  const candidata=conDatoControl||conDato||vars.find(v=>v.tipo!=='none')||vars[0];
+  PTABR_GRAFICA_VAR[proceso.nombre]=candidata.id; return candidata;
+}
+function ptabrLimitesGrafica(v,valores){
+  let nums=(valores||[]).map(ptabrNumeroLocal).filter(x=>x!==null);
+  if(v&&v.min!=null) nums.push(Number(v.min)); if(v&&v.max!=null) nums.push(Number(v.max));
+  if(!nums.length) return {lo:0,hi:1};
+  let lo=Math.min(...nums),hi=Math.max(...nums);
+  if(v&&v.tipo==='max'&&lo>=0) lo=0;
+  if(lo===hi){const p=Math.abs(lo)*.15||1;lo-=p;hi+=p;} else {const p=(hi-lo)*.12;lo-=p;hi+=p;}
+  if(lo>=0)lo=Math.max(0,lo); return {lo,hi};
+}
+function ptabrEjes(v,valores,W=640,H=235){
+  const pad={t:18,r:18,b:38,l:62},lim=ptabrLimitesGrafica(v,valores),span=lim.hi-lim.lo||1;
+  const y=n=>pad.t+(lim.hi-Number(n))/span*(H-pad.t-pad.b); let svg='';
+  for(let i=0;i<=4;i++){const val=lim.lo+span*i/4,yy=y(val);svg+=`<line x1="${pad.l}" y1="${yy.toFixed(1)}" x2="${W-pad.r}" y2="${yy.toFixed(1)}" stroke="${C.line}" stroke-width="1"/><text x="${pad.l-8}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10.2" fill="${C.ink3}">${esc(ptabrNumeroTexto(val))}</text>`;}
+  if(v&&v.tipo==='band'&&v.min!=null&&v.max!=null){const ya=y(v.max),yb=y(v.min);svg+=`<rect x="${pad.l}" y="${Math.min(ya,yb).toFixed(1)}" width="${W-pad.l-pad.r}" height="${Math.abs(yb-ya).toFixed(1)}" fill="${C.agua}" opacity=".08"/><line x1="${pad.l}" y1="${ya.toFixed(1)}" x2="${W-pad.r}" y2="${ya.toFixed(1)}" stroke="${C.agua}" stroke-width="1" stroke-dasharray="4 4" opacity=".75"/><line x1="${pad.l}" y1="${yb.toFixed(1)}" x2="${W-pad.r}" y2="${yb.toFixed(1)}" stroke="${C.agua}" stroke-width="1" stroke-dasharray="4 4" opacity=".75"/>`;}
+  else if(v&&v.tipo==='max'&&v.max!=null){const yy=y(v.max);svg+=`<line x1="${pad.l}" y1="${yy.toFixed(1)}" x2="${W-pad.r}" y2="${yy.toFixed(1)}" stroke="${C.crit}" stroke-width="1.2" stroke-dasharray="5 4"/><text x="${W-pad.r-3}" y="${(yy-5).toFixed(1)}" text-anchor="end" font-size="10" fill="${C.crit}">máx. ${esc(ptabrNumeroTexto(v.max))}</text>`;}
+  else if(v&&v.tipo==='min'&&v.min!=null){const yy=y(v.min);svg+=`<line x1="${pad.l}" y1="${yy.toFixed(1)}" x2="${W-pad.r}" y2="${yy.toFixed(1)}" stroke="${C.crit}" stroke-width="1.2" stroke-dasharray="5 4"/><text x="${W-pad.r-3}" y="${(yy-5).toFixed(1)}" text-anchor="end" font-size="10" fill="${C.crit}">mín. ${esc(ptabrNumeroTexto(v.min))}</text>`;}
+  return {svg,y,pad,W,H};
+}
+function renderPtabrDia(host,proceso,v){
+  if(!host||!v)return;
+  const regs=PTABR_TURNOS.map(t=>registroPtabr(v.id,t)),vals=regs.map(r=>r?ptabrNumeroLocal(r.valor):null).filter(x=>x!==null);
+  if(!vals.length){host.innerHTML=`<div class="ptar-chart-empty">Sin lecturas numéricas de ${esc(v.variable)} para ${etiquetaFechaPtabr(PTABR_FECHA,true)}.</div>`;return;}
+  const ax=ptabrEjes(v,vals),{W,H,pad,y}=ax,xs=[pad.l+90,W-pad.r-90];let g=ax.svg,pts=[];
+  regs.forEach((r,i)=>{const x=xs[i],label=i===0?'06:00 am':'06:00 pm';g+=`<text x="${x}" y="${H-10}" text-anchor="middle" font-size="10.5" fill="${C.ink3}">${label}</text>`;const val=r?ptabrNumeroLocal(r.valor):null;if(val===null)return;const yy=y(val),st=estadoRegistroPtabr(r),color=st==='FUERA DE RANGO'?C.crit:C.agua;pts.push([x,yy]);const orig=!ptabrEsVacio(r.original)?` · original ${String(r.original)}`:'';g+=`<circle cx="${x}" cy="${yy.toFixed(1)}" r="${st==='FUERA DE RANGO'?5:4}" fill="${color}" stroke="#fff" stroke-width="1.5"><title>${esc(PTABR_TURNO_ETIQUETA[PTABR_TURNOS[i]]+' · '+ptabrNumeroTexto(val)+(v.unidad?' '+v.unidad:'')+orig+' · '+st)}</title></circle><text x="${x}" y="${Math.max(pad.t+12,yy-8).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="${color}">${esc(ptabrNumeroTexto(val))}</text>`;});
+  if(pts.length>1)g+=`<path d="M${pts[0][0]} ${pts[0][1].toFixed(1)} L${pts[1][0]} ${pts[1][1].toFixed(1)}" fill="none" stroke="${C.agua}" stroke-width="2" opacity=".75"/>`;
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(v.variable+' del día')}">${g}</svg>`;
+}
+function registrosHistoricosVariablePtabr(v){
+  const ord=t=>t==='1er Turno'?0:(t==='2do Turno'?1:2);
+  return PTABR_DATA.filter(r=>r.id===v.id&&ptabrNumeroLocal(r.valor)!==null).slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)||ord(a.turno)-ord(b.turno));
+}
+function resumenDesviacionesHistoricasPtabr(v){const rows=registrosHistoricosVariablePtabr(v),devs=rows.filter(r=>estadoRegistroPtabr(r)==='FUERA DE RANGO');return {rows,devs,fechas:[...new Set(rows.map(r=>r.fecha))].sort()};}
+function renderPtabrHistoricoCompleto(host,v){
+  if(!host||!v)return;const info=resumenDesviacionesHistoricasPtabr(v),rows=info.rows,fechas=info.fechas,vals=rows.map(r=>ptabrNumeroLocal(r.valor)).filter(x=>x!==null);
+  if(!vals.length){host.innerHTML=`<div class="ptar-chart-empty">Sin registros históricos numéricos de ${esc(v.variable)} en el archivo.</div>`;return;}
+  const W=760,H=255,ax=ptabrEjes(v,vals,W,H),{pad,y}=ax,x=i=>fechas.length<2?(pad.l+(W-pad.r))/2:pad.l+i*(W-pad.l-pad.r)/(fechas.length-1);let g=ax.svg;
+  fechas.forEach((f,i)=>{g+=`<text x="${x(i).toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="9.4" fill="${C.ink3}">${esc(etiquetaFechaPtabr(f))}</text>`;});
+  PTABR_TURNOS.forEach((turn,si)=>{const color=si===0?C.agua:C.ink,pts=[];fechas.forEach((f,i)=>{const r=registroPtabr(v.id,turn,f),val=r?ptabrNumeroLocal(r.valor):null;if(val!==null)pts.push([x(i),y(val),r,val]);});if(pts.length>1){const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');g+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity=".9"/>`;}pts.forEach(p=>{const st=estadoRegistroPtabr(p[2]),fuera=st==='FUERA DE RANGO',pc=fuera?C.crit:color;g+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${fuera?5.2:3.6}" fill="${pc}" stroke="#fff" stroke-width="${fuera?1.7:1.2}"><title>${esc(etiquetaFechaPtabr(p[2].fecha,true)+' · '+PTABR_TURNO_ETIQUETA[turn]+' · '+ptabrNumeroTexto(p[3])+(v.unidad?' '+v.unidad:'')+' · '+st)}</title></circle>`;});});
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc('Histórico completo · '+v.variable)}">${g}</svg><div class="ptar-chart-legend"><span><i style="--k:${C.agua}"></i>1er turno · 06:00 am</span><span><i style="--k:${C.ink}"></i>2do turno · 06:00 pm</span><span><i style="--k:${C.crit}"></i>Fuera de rango</span><span class="ptar-chart-range">${esc(v.rango||'Sin rango definido')}</span></div>`;
+}
+function textoDesviacionesHistoricasPtabr(v,limit=4){const devs=resumenDesviacionesHistoricasPtabr(v).devs;if(!devs.length)return '';const partes=devs.slice(0,limit).map(r=>`${etiquetaFechaPtabr(r.fecha)} ${r.turno} · ${valorTextoPtabr(r)}${v.unidad?' '+v.unidad:''}`);return partes.join(' · ')+(devs.length>limit?` · +${devs.length-limit} más`:'');}
+function ptabrSeleccionHistorico(p){const vars=ptabrVariables(p),actual=PTABR_HISTORICO_SEL[p.nombre]||'__all__';if(actual==='__all__'||vars.some(v=>v.id===actual))return actual;PTABR_HISTORICO_SEL[p.nombre]='__all__';return '__all__';}
+function pintarGraficasPtabr(){
+  const host=document.getElementById('ptab-graficas-procesos');if(!host||!PTABR_PROCESOS.length)return;
+  host.innerHTML=PTABR_PROCESOS.map((p,pi)=>{const todas=ptabrVariables(p),v=ptabrVariableGrafica(p),opciones=todas.map(x=>`<option value="${esc(x.id)}"${x.id===v.id?' selected':''}>${esc(x.variable)} · ${esc(x.puesto)}</option>`).join(''),histSel=ptabrSeleccionHistorico(p),opHist=`<option value="__all__"${histSel==='__all__'?' selected':''}>Todas las gráficas</option>`+todas.map(x=>`<option value="${esc(x.id)}"${x.id===histSel?' selected':''}>${esc(x.variable)} · ${esc(x.puesto)}</option>`).join(''),varsHist=histSel==='__all__'?todas:todas.filter(x=>x.id===histSel),historicos=varsHist.map(hv=>{const vi=todas.findIndex(x=>x.id===hv.id),info=resumenDesviacionesHistoricasPtabr(hv),nReg=info.rows.length,nDias=info.fechas.length,nDev=info.devs.length,multiple=info.rows.some(r=>typeof r.original==='string'&&r.original.includes('/'));const badge=nReg?(nDev?`<span class="pill crit"><i></i>${nDev} fuera de rango</span>`:`<span class="pill ${hv.tipo==='none'?'idle':'ok'}"><i></i>${hv.tipo==='none'?'Informativo':'Sin desviaciones'}</span>`):`<span class="pill idle"><i></i>Sin registros</span>`;return `<article class="ptar-history-var-card ${nDev?'has-history-dev':''}" aria-labelledby="ptab-hist-${pi}-${vi}"><div class="ptar-history-var-head"><div class="ptar-history-var-title"><h5 id="ptab-hist-${pi}-${vi}">${esc(hv.variable)}</h5><div class="ptar-history-var-meta"><span>${esc(hv.puesto)}</span><span>Rango: ${esc(hv.rango||'—')}</span>${hv.unidad?`<span>Unidad: ${esc(hv.unidad)}</span>`:''}<span>${nReg} lectura${nReg===1?'':'s'} · ${nDias} día${nDias===1?'':'s'} con registro</span>${multiple?'<span>Gráfica: promedio de lecturas múltiples</span>':''}</div></div>${badge}</div><div class="ptar-process-chart ptar-history-chart" data-ptab-chart-history="${pi}-${vi}"></div>${nDev?`<div class="ptar-history-dev-note"><b>Desviaciones:</b> ${esc(textoDesviacionesHistoricasPtabr(hv))}</div>`:''}</article>`;}).join('');
+    return `<section class="card ptar-chart-process-card ptab-real-theme ptar-process-charts" aria-labelledby="ptab-chart-${pi}"><div class="card-h"><div><h3 id="ptab-chart-${pi}">${esc(p.nombre)}</h3><span class="ptar-process-chart-sub">${todas.length} variables · histórico completo según días con registro</span></div><label class="ptar-chart-selector">Variable para lectura del día<select data-ptab-chart-process="${pi}" aria-label="Variable del día a graficar de ${esc(p.nombre)}">${opciones}</select></label></div><div class="card-b"><div class="ptar-day-block"><div class="ptar-chart-meta"><strong>${esc(v.variable)}</strong><span>${esc(v.puesto)}</span><span>Rango: ${esc(v.rango||'—')}</span>${v.unidad?`<span>Unidad: ${esc(v.unidad)}</span>`:''}</div><div class="ptar-chart-panel ptar-day-panel"><div class="ptar-chart-panel-h"><h4>Lecturas del día seleccionado</h4><span class="sub">${etiquetaFechaPtabr(PTABR_FECHA,true)} · 1er turno 06:00 am · 2do turno 06:00 pm</span></div><div class="ptar-process-chart" data-ptab-chart-day="${pi}"></div></div></div><div class="ptar-all-history"><div class="ptar-all-history-h"><div><h4>Comportamiento histórico de todas las variables</h4><p>Selecciona una gráfica específica o muestra todas las variables del proceso.</p></div><div class="history-toolbar"><label class="history-chart-selector">Gráfica a visualizar<select data-ptab-history-selector="${pi}" aria-label="Gráfica histórica a visualizar de ${esc(p.nombre)}">${opHist}</select></label><span class="ptar-history-key"><i></i>Los puntos rojos indican lecturas fuera del rango de operación.</span></div></div><div class="ptar-history-grid ${histSel==='__all__'?'':'is-single'}">${historicos}</div></div></div></section>`;
+  }).join('');
+  PTABR_PROCESOS.forEach((p,pi)=>{const todas=ptabrVariables(p),v=ptabrVariableGrafica(p),histSel=ptabrSeleccionHistorico(p);renderPtabrDia(host.querySelector(`[data-ptab-chart-day="${pi}"]`),p,v);(histSel==='__all__'?todas:todas.filter(x=>x.id===histSel)).forEach(hv=>{const vi=todas.findIndex(x=>x.id===hv.id);renderPtabrHistoricoCompleto(host.querySelector(`[data-ptab-chart-history="${pi}-${vi}"]`),hv);});});
+  host.querySelectorAll('[data-ptab-chart-process]').forEach(sel=>sel.addEventListener('change',()=>{const p=PTABR_PROCESOS[Number(sel.dataset.ptabChartProcess)];if(p){PTABR_GRAFICA_VAR[p.nombre]=sel.value;pintarGraficasPtabr();}}));
+  host.querySelectorAll('[data-ptab-history-selector]').forEach(sel=>sel.addEventListener('change',()=>{const p=PTABR_PROCESOS[Number(sel.dataset.ptabHistorySelector)];if(p){PTABR_HISTORICO_SEL[p.nombre]=sel.value;pintarGraficasPtabr();}}));
+}
+function poblarFechasPtabr(){
+  const sels=[document.getElementById('ptab-date-select'),document.getElementById('ptab-summary-date-select')].filter(Boolean);
+  sels.forEach(sel=>{sel.innerHTML=PTABR_FECHAS.map(f=>`<option value="${f}">${etiquetaFechaPtabr(f,true)}</option>`).join('');sel.value=PTABR_FECHA||'';if(!sel.dataset.bound){sel.dataset.bound='1';sel.addEventListener('change',()=>{PTABR_FECHA=sel.value;sels.forEach(s=>s.value=PTABR_FECHA);pintarPtabr();pintarValores();pintarEncabezado();pintarPrioridades();});}});
+}
+function pintarDesviacionesPtabr(){
+  const host=document.getElementById('ptab-desviaciones'),count=document.getElementById('ptab-desv-count');if(!host)return;
+  const list=registrosFechaPtabr().filter(r=>estadoRegistroPtabr(r)==='FUERA DE RANGO');if(count)count.textContent=list.length?`${list.length} detectada${list.length===1?'':'s'}`:'ninguna';
+  host.innerHTML=list.length?list.map(r=>{const v=ptabrDefPorId(r.id);return `<div class="ptar-dev"><span class="bar" style="background:${C.crit}"></span><div class="body"><div class="title">${esc(r.variable)} · ${valorTextoPtabr(r)}${v&&v.unidad?' '+esc(v.unidad):''}</div><div class="meta">${esc(r.proceso)} · ${esc(r.puesto)} · rango ${esc(r.rango||'—')}</div>${r.operador?`<div class="obs">Operador: ${esc(r.operador)}</div>`:''}${r.observacion?`<div class="obs">${esc(r.observacion)}</div>`:''}</div><time>${esc(PTABR_TURNO_ETIQUETA[r.turno]||r.turno)}</time></div>`;}).join(''):`<p class="empty">No hay variables registradas fuera de rango el ${etiquetaFechaPtabr(PTABR_FECHA,true)}.</p>`;
+}
+function pintarPtabr(){
+  if(!PTABR_PROCESOS.length)return;poblarFechasPtabr();const total=ptabrStats(),eTotal=ptabrEstado(total);
+  document.querySelectorAll('[data-ptab-summary-count]').forEach(el=>el.textContent=String(total.registradas));
+  const sumPill=document.querySelector('[data-ptab-summary-pill]');if(sumPill){sumPill.className='pill '+eTotal.st;sumPill.innerHTML='<i></i>'+esc(eTotal.txt);}
+  const stripVal=document.querySelector('[data-ptab-strip-value]');if(stripVal)stripVal.textContent=String(total.desviaciones);
+  const stripPill=document.querySelector('[data-ptab-strip-pill]');if(stripPill){stripPill.className='pill '+eTotal.st;stripPill.innerHTML='<i></i>'+esc(eTotal.txt);}
+  const resumen=document.getElementById('ptab-resumen-procesos');if(resumen)resumen.innerHTML=PTABR_PROCESOS.map(p=>{const st=ptabrStats(p),e=ptabrEstado(st);return `<div class="ptar-summary-process"><div class="ptar-summary-process-h"><strong>${esc(p.nombre)}</strong><span class="pill ${e.st}"><i></i>${esc(e.txt)}</span></div><div class="ptar-summary-process-v"><b>${st.variables}</b> variables · ${st.registradas} lecturas · ${st.desviaciones} fuera</div><div class="ptar-progress"><i style="width:${st.controladas?st.pctNormal.toFixed(1):0}%"></i></div></div>`;}).join('');
+  const kpis=document.getElementById('ptab-kpis-proceso');if(kpis)kpis.innerHTML=PTABR_PROCESOS.map(p=>{const st=ptabrStats(p),e=ptabrEstado(st);return `<div class="kpi ptab-process-kpi"><div class="lbl"><span>${esc(p.nombre)}</span><span class="pill ${e.st}" style="margin-left:auto"><i></i>${esc(e.txt)}</span></div><div class="v tnum">${st.registradas}<small>lecturas</small></div><div class="rng">${st.variables} variables · ${st.controladas} con rango evaluadas</div><div class="ptar-progress"><i style="width:${st.controladas?st.pctNormal.toFixed(1):0}%"></i></div></div>`;}).join('');
+  const host=document.getElementById('ptab-procesos');if(host){const ops=operadoresFechaPtabr();host.innerHTML=PTABR_PROCESOS.map((p,pi)=>{const st=ptabrStats(p),e=ptabrEstado(st);const rows=(p.puestos||[]).map(puesto=>(puesto.variables||[]).map((v,i)=>{const puestoCell=i===0?`<td class="ptar-puesto" rowspan="${puesto.variables.length}">${esc(puesto.nombre)}</td>`:'';const regs=PTABR_TURNOS.map(t=>registroPtabr(v.id,t)),dev=regs.some(r=>estadoRegistroPtabr(r)==='FUERA DE RANGO'),cells=regs.map(r=>{const est=estadoRegistroPtabr(r);return `<td class="num ptar-lectura ${claseEstadoPtabr(est)}" title="${esc(est)}">${valorTextoPtabr(r)}</td>`;}).join('');return `<tr class="${dev?'has-dev':''}">${puestoCell}<td>${esc(v.variable)}</td><td class="ptar-rango tnum">${esc(v.rango||'—')}</td>${cells}</tr>`;}).join('')).join('');return `<section class="card ptar-process-card ptab-real-theme" aria-labelledby="ptab-proceso-${pi}"><div class="card-h"><h3 id="ptab-proceso-${pi}">${esc(p.nombre)}</h3><span class="pill ${e.st}"><i></i>${esc(e.txt)}</span><span class="note">${etiquetaFechaPtabr(PTABR_FECHA,true)} · ${st.registradas} lecturas</span></div><div class="card-b ptar-table-wrap"><table class="tbl ptar-table ptab-real-table"><thead><tr><th>Equipo</th><th>Variable de control</th><th class="num">Rango de operación</th><th class="num">1er turno · 06:00 am${ops['1er Turno']?`<small>${esc(ops['1er Turno'])}</small>`:''}</th><th class="num">2do turno · 06:00 pm${ops['2do Turno']?`<small>${esc(ops['2do Turno'])}</small>`:''}</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;}).join('');}
+  pintarGraficasPtabr();pintarDesviacionesPtabr();
+}
+function normalizarFilasPtabr(rows){
+  if(!PTABR_PROCESOS.length) PTABR_PROCESOS=construirProcesosPtabrDesdeFilas(rows);
+  const prelim=(rows||[]).map(r=>{
+    const proceso=ptabrProcesoNombre(r.Proceso??r.proceso??'');
+    const puesto=String(r.Equipo??r['Puesto de trabajo']??r.puesto??'').trim();
+    const variable=String(r['Variable de Control']??r['Variable de control']??r.Variable??r.variable??'').trim();
+    let id=String(r.VariableId??r.id??'').trim();
+    const def=id?ptabrDefPorId(id):ptabrDefPorCampos(proceso,puesto,variable);
+    if(!def) return null;
+    id=def.id;
+    const rawNum=r['Valor numérico / promedio']??r.Valor??r.valor;
+    const orig=r['Valor original turno']??r['Valor original']??r.valorOriginal??rawNum;
+    const num=ptabrNumeroLocal(rawNum);
+    return {
+      fecha:normalizarFechaPtabr(r.Fecha??r.fecha),
+      turno:String(r.Turno??r.turno??'').trim(),
+      hora:String(r['Hora impresa']??r.Hora??r.hora??'').trim(),
+      operador:String(r.Operador??r.operador??'').trim(),
+      proceso:def.proceso,puesto:def.puesto,variable:def.variable,rango:def.rango,
+      valor:num!==null?num:null,original:orig,
+      unidad:def.unidad||String(r.Unidad??r.unidad??'').trim(),
+      tipo:def.tipo,min:def.min,max:def.max,
+      estadoFuente:String(r.Estado??r['Estado Fuente']??r.estado??'').trim(),
+      observacion:String(r.Observación??r.Observacion??r.observacion??'').trim(),
+      fuente:String(r.Fuente??r.fuente??'').trim(),id
+    };
+  }).filter(r=>r&&r.fecha&&r.turno&&r.id);
+
+  const groups=new Map();
+  prelim.forEach(r=>{
+    const key=[r.fecha,r.turno,r.id].join('|');
+    if(!groups.has(key)) groups.set(key,{base:r,nums:[],originales:[],estados:[],observaciones:[]});
+    const g=groups.get(key);
+    if(ptabrNumeroLocal(r.valor)!==null) g.nums.push(Number(r.valor));
+    if(!ptabrEsVacio(r.original)) g.originales.push(String(r.original));
+    if(r.estadoFuente) g.estados.push(r.estadoFuente);
+    if(r.observacion) g.observaciones.push(r.observacion);
+  });
+  return [...groups.values()].map(g=>{
+    const r={...g.base};
+    r.valor=g.nums.length?g.nums.reduce((a,b)=>a+b,0)/g.nums.length:null;
+    r.original=g.originales.find(Boolean)??r.original;
+    const estados=g.estados.map(x=>String(x).toUpperCase());
+    r.estadoFuente=estados.some(x=>x.includes('FUERA DE RANGO'))?'Fuera de rango'
+      :estados.some(x=>x.includes('NORMAL'))?'Normal'
+      :estados.some(x=>x.includes('INFORMATIVO'))?'Informativo'
+      :'Sin dato';
+    r.observacion=[...new Set(g.observaciones)].join(' · ');
+    return r;
+  });
+}
+function cargarDatosPtabr(rows,fechas,procesos,fuente){
+  if(procesos&&procesos.length)PTABR_PROCESOS=procesos;const norm=normalizarFilasPtabr(rows);if(!norm.length)throw new Error('El archivo no contiene registros válidos de PTAB.');PTABR_DATA=norm;const dataFechas=[...new Set(norm.map(r=>r.fecha))].sort();PTABR_FECHAS=(fechas&&fechas.length?[...new Set(fechas)]:dataFechas).sort();const ult=dataFechas.filter(f=>registrosFechaPtabr(f).some(tieneLecturaPtabr)).slice(-1)[0]||PTABR_FECHAS[PTABR_FECHAS.length-1]||null;if(!PTABR_FECHA||!PTABR_FECHAS.includes(PTABR_FECHA)||!registrosFechaPtabr(PTABR_FECHA).some(tieneLecturaPtabr))PTABR_FECHA=ult;PTABR_FUENTE=fuente||PTABR_FUENTE;poblarFechasPtabr();if(document.body&&document.body.dataset.dashboardReady==='1'){pintarPtabr();pintarValores();pintarEncabezado();pintarPrioridades();}
+}
+async function leerExcelPtabr(buffer){
+  const zip=await abrirZipPTAR(buffer),parser=new DOMParser(),wbXml=parser.parseFromString(await zip.text('xl/workbook.xml'),'application/xml'),relXml=parser.parseFromString(await zip.text('xl/_rels/workbook.xml.rels'),'application/xml'),rels=[...relXml.getElementsByTagNameNS('*','Relationship')];let shared=[];if(zip.entries.has('xl/sharedStrings.xml')){const ssXml=parser.parseFromString(await zip.text('xl/sharedStrings.xml'),'application/xml');shared=[...ssXml.getElementsByTagNameNS('*','si')].map(si=>[...si.getElementsByTagNameNS('*','t')].map(t=>t.textContent||'').join(''));}const sheets=[...wbXml.getElementsByTagNameNS('*','sheet')],sheet=sheets.find(s=>s.getAttribute('name')==='Control');if(!sheet)throw new Error('No existe la hoja "Control" en el archivo de PTAB.');const rid=sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id')||sheet.getAttribute('r:id'),rel=rels.find(r=>r.getAttribute('Id')===rid);if(!rel)throw new Error('No se pudo resolver la hoja Control.');let target=rel.getAttribute('Target').replace(/^\//,'');if(!target.startsWith('xl/'))target='xl/'+target.replace(/^\.\//,'');const rows=await leerHojaXLSXPTAR(zip,target,shared);if(!rows.length)throw new Error('La hoja Control está vacía.');const headers=rows[0].map(x=>String(x??'').trim());return rows.slice(1).filter(r=>r.some(v=>v!==''&&v!==null&&v!==undefined)).map(r=>{const o={};headers.forEach((h,i)=>{if(h)o[h]=r[i]??'';});return o;});
+}
+async function cargarExcelPtabrArchivo(file,origen='archivo seleccionado'){const rows=await leerExcelPtabr(await file.arrayBuffer());cargarDatosPtabr(rows,[],[],`${file.name} · ${rows.length} filas de control · ${origen}`);}
+async function cargarPtabrAutomatico(){if(location.protocol==='file:')return;try{const resp=await fetch('Reporte_Control_PTAB_04-09_al_09-09-2026.xlsx',{cache:'no-store'});if(!resp.ok)throw new Error('HTTP '+resp.status);const rows=await leerExcelPtabr(await resp.arrayBuffer());cargarDatosPtabr(rows,[],[],`Reporte_Control_PTAB_04-09_al_09-09-2026.xlsx · ${rows.length} filas de control · carga automática`);}catch(err){}}
+function inicializarPtabrExcel(){const input=document.getElementById('ptab-excel-input');if(input&&!input.dataset.bound){input.dataset.bound='1';input.addEventListener('change',async()=>{const file=input.files&&input.files[0];if(!file)return;try{await cargarExcelPtabrArchivo(file);}catch(err){alert('No se pudo leer el Excel de PTAB: '+err.message);}finally{input.value='';}});}cargarPtabrAutomatico();}
+if(window.PTABR_FALLBACK_DATA&&window.PTABR_FALLBACK_DATA.length){cargarDatosPtabr(window.PTABR_FALLBACK_DATA,window.PTABR_FALLBACK_FECHAS||[],window.PTABR_FALLBACK_PROCESOS||[],'Reporte_Control_PTAB_04-09_al_09-09-2026.xlsx · datos precargados para apertura local');}
+
+
+
+
+
+
+/* =========================================================
+   COMPRESORES DE AIRE + REFRIGERACIÓN / NH3
+   Datos reales del histórico de reportes de WhatsApp
+   ========================================================= */
+const WA_TURN_ORDER={'06:00-18:00':0,'18:00-06:00':1};
+const WA_CFG={
+  aire:{
+    tab:'aire',nombre:'Compresores de aire',corto:'Compresores de aire',color:C.aire,
+    source:'Historial_Reportes_Compresores_Refrigeracion_WhatsApp.xlsx',
+    areasPermitidas:['Compresores Aire','Trampas de Aire'],
+    data:(window.AIRE_WA_FALLBACK_DATA||[]).slice(),catalogo:(window.AIRE_WA_FALLBACK_CATALOGO||[]).slice(),
+    fechas:(window.AIRE_WA_FALLBACK_FECHAS||[]).slice(),fecha:null,graficaVar:Object.create(null),historicoSel:Object.create(null)
+  },
+  frio:{
+    tab:'frio',nombre:'Refrigeración y amoníaco',corto:'Refrigeración · NH₃',color:C.nh3,
+    source:'Historial_Reportes_Compresores_Refrigeracion_WhatsApp.xlsx',
+    areasPermitidas:['Compresores NH3','Banco de Hielo','Cavas','Cava Gigante','Fraccionamiento','UMAS Margarina','Condensador/Evaporativo','NH3 en Cilindros'],
+    data:(window.NH3_WA_FALLBACK_DATA||[]).slice(),catalogo:(window.NH3_WA_FALLBACK_CATALOGO||[]).slice(),
+    fechas:(window.NH3_WA_FALLBACK_FECHAS||[]).slice(),fecha:null,graficaVar:Object.create(null),historicoSel:Object.create(null)
+  }
+};
+Object.values(WA_CFG).forEach(c=>{c.fechas=[...new Set(c.fechas.length?c.fechas:c.data.map(r=>r.fecha).filter(Boolean))].sort();c.fecha=c.fechas[c.fechas.length-1]||null;});
+
+function waCfg(tab){return WA_CFG[tab]||null;}
+function waFechaTxt(fecha,larga=false){
+  if(!fecha||fecha==='__sin_fecha__')return 'Sin fecha exacta';
+  const [y,m,d]=String(fecha).split('-').map(Number);if(!y||!m||!d)return String(fecha);
+  const dt=new Date(y,m-1,d);
+  return larga?dt.toLocaleDateString('es-VE',{day:'2-digit',month:'2-digit',year:'numeric'}):`${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}`;
+}
+function waNumero(n){
+  if(n===null||n===undefined||n==='')return null;const x=Number(n);if(!Number.isFinite(x))return null;
+  return x.toLocaleString('es-VE',{maximumFractionDigits:3,minimumFractionDigits:0});
+}
+function waEstadoClase(r){
+  if(!r)return 'idle';const s=String(r.estado||'').toUpperCase();
+  if(s.includes('FUERA DE SERVICIO')||s.includes('FUERA DE NORMA'))return 'crit';
+  if(s.includes('ALERTA')||s.includes('INCONSISTENTE'))return 'warn';
+  if(s.includes('OPERATIVO')||s.includes('NORMAL REPORTADO'))return 'ok';
+  if(s.includes('SIN INDICADOR'))return 'info';
+  return 'idle';
+}
+function waEstadoTxt(r){const st=waEstadoClase(r);return st==='crit'?'Fuera de servicio / norma':st==='warn'?'Alerta':st==='ok'?'Normal':st==='info'?'Informativo':'Sin estado';}
+function waEstadoCorto(r){const st=waEstadoClase(r);return st==='crit'?'Fuera':st==='warn'?'Alerta':st==='ok'?'Normal':st==='info'?'Info':'—';}
+function waEsPrioridad(r){const s=waEstadoClase(r);return s==='crit'||s==='warn';}
+function waColorEstado(r){const s=waEstadoClase(r);return s==='crit'?C.crit:s==='warn'?C.warn:s==='ok'?C.ok:C.ink3;}
+function waValorTexto(r,conUnidad=false){
+  if(!r)return '—';let v='—';
+  if(r.valor!==null&&r.valor!==undefined&&r.valor!==''){v=waNumero(r.valor)??String(r.valor);}
+  else if(r.texto!==null&&r.texto!==undefined&&String(r.texto).trim()!==''){v=String(r.texto).trim();}
+  if(conUnidad&&r.unidad&&v!=='—')v+=' '+r.unidad;return v;
+}
+function waDef(tab,id){const c=waCfg(tab);return c?c.catalogo.find(v=>v.id===id)||null:null;}
+function waAreas(tab){const c=waCfg(tab);if(!c)return[];const out=[];c.catalogo.forEach(v=>{if(v.area&&!out.includes(v.area))out.push(v.area);});return out;}
+function waVarsArea(tab,area){const c=waCfg(tab);return c?c.catalogo.filter(v=>v.area===area):[];}
+function waRowsFecha(tab,fecha=null,area=null){const c=waCfg(tab);if(!c)return[];const f=fecha===null?c.fecha:fecha;return c.data.filter(r=>(f==='__sin_fecha__'?!r.fecha:r.fecha===f)&&(!area||r.area===area));}
+function waRowsVar(tab,id,soloFechados=true){const c=waCfg(tab);if(!c)return[];return c.data.filter(r=>r.id===id&&(!soloFechados||r.fecha));}
+function waSlotKey(r){return r.reporteId||`${r.turno}|${r.operador}`;}
+function waSlots(tab,fecha=null){
+  const c=waCfg(tab);if(!c)return[];const f=fecha===null?c.fecha:fecha,m=new Map();
+  c.data.filter(r=>(f==='__sin_fecha__'?!r.fecha:r.fecha===f)).forEach(r=>{const k=waSlotKey(r);if(!m.has(k))m.set(k,{reporteId:r.reporteId||'',turno:r.turno||'',turnoOriginal:r.turnoOriginal||'',operador:r.operador||'',confianzaFecha:r.confianzaFecha||''});});
+  return [...m.values()].sort((a,b)=>(WA_TURN_ORDER[a.turno]??9)-(WA_TURN_ORDER[b.turno]??9)||String(a.reporteId).localeCompare(String(b.reporteId),'es',{numeric:true}));
+}
+function waRegistro(tab,id,slot,fecha=null){const c=waCfg(tab);if(!c||!slot)return null;const f=fecha===null?c.fecha:fecha;return c.data.find(r=>(f==='__sin_fecha__'?!r.fecha:r.fecha===f)&&r.id===id&&waSlotKey(r)===waSlotKey(slot))||null;}
+function waStats(tab,area=null,fecha=null){
+  const c=waCfg(tab);if(!c)return{variables:0,registradas:0,crit:0,warn:0,ok:0,info:0,prioridad:0,pctNormal:0};
+  const vars=area?waVarsArea(tab,area):c.catalogo,rows=waRowsFecha(tab,fecha,area);let crit=0,warn=0,ok=0,info=0;
+  rows.forEach(r=>{const s=waEstadoClase(r);if(s==='crit')crit++;else if(s==='warn')warn++;else if(s==='ok')ok++;else info++;});
+  const evaluadas=crit+warn+ok;return{variables:vars.length,registradas:rows.length,crit,warn,ok,info,prioridad:crit+warn,pctNormal:evaluadas?ok/evaluadas*100:0};
+}
+function waEstadoServicio(st){
+  if(!st||!st.registradas)return{st:'idle',txt:'Sin registros'};
+  if(st.crit)return{st:'crit',txt:`${st.crit} crítica${st.crit===1?'':'s'}`};
+  if(st.warn)return{st:'warn',txt:`${st.warn} alerta${st.warn===1?'':'s'}`};
+  if(st.ok)return{st:'ok',txt:'Normal'};return{st:'idle',txt:'Informativo'};
+}
+function waCriterio(def){if(!def)return'—';return def.rango||def.criterio||'Sin rango numérico informado';}
+function waOperadoresFecha(tab,fecha=null){return waSlots(tab,fecha).map(s=>s.operador).filter(Boolean);}
+function waVariableGrafica(tab,area){
+  const c=waCfg(tab),vars=waVarsArea(tab,area);if(!c||!vars.length)return null;
+  const saved=c.graficaVar[area];if(saved){const d=vars.find(v=>v.id===saved);if(d)return d;}
+  const slots=waSlots(tab,c.fecha);
+  const num=vars.find(v=>slots.some(s=>{const r=waRegistro(tab,v.id,s,c.fecha);return r&&r.valor!==null&&r.valor!==undefined;}));
+  const any=vars.find(v=>slots.some(s=>waRegistro(tab,v.id,s,c.fecha)))||vars[0];const chosen=num||any;c.graficaVar[area]=chosen.id;return chosen;
+}
+function waHistSel(tab,area){const c=waCfg(tab);if(!c)return'__all__';const v=c.historicoSel[area];if(v==='__all__'||waVarsArea(tab,area).some(x=>x.id===v))return v;c.historicoSel[area]='__all__';return'__all__';}
+function waSortRows(a,b){return String(a.fecha||'9999').localeCompare(String(b.fecha||'9999'))||(WA_TURN_ORDER[a.turno]??9)-(WA_TURN_ORDER[b.turno]??9)||String(a.reporteId).localeCompare(String(b.reporteId),'es',{numeric:true});}
+function waEsNumerica(tab,def){if(def&&String(def.tipoDato).toLowerCase().includes('num'))return true;return waRowsVar(tab,def.id,false).some(r=>r.valor!==null&&r.valor!==undefined&&Number.isFinite(Number(r.valor)));}
+function waStatusCode(r){const s=waEstadoClase(r);return s==='crit'?2:s==='warn'?1:s==='ok'?0:0.35;}
+function waShortTurn(t){return t==='06:00-18:00'?'06–18':t==='18:00-06:00'?'18–06':t||'—';}
+function waAxisNumeric(vals,W=700,H=240){
+  const pad={t:18,r:18,b:42,l:62};let lo=Math.min(...vals),hi=Math.max(...vals);if(lo===hi){const p=Math.abs(lo)*.15||1;lo-=p;hi+=p;}else{const p=(hi-lo)*.14;lo-=p;hi+=p;}if(lo>=0)lo=Math.max(0,lo);const span=hi-lo||1,y=n=>pad.t+(hi-Number(n))/span*(H-pad.t-pad.b);let svg='';
+  for(let i=0;i<=4;i++){const val=lo+span*i/4,yy=y(val);svg+=`<line x1="${pad.l}" y1="${yy.toFixed(1)}" x2="${W-pad.r}" y2="${yy.toFixed(1)}" stroke="${C.line}"/><text x="${pad.l-8}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="${C.ink3}">${esc(waNumero(val))}</text>`;}
+  return{pad,W,H,y,svg,lo,hi};
+}
+function waAxisStatus(W=700,H=240){
+  const pad={t:18,r:18,b:42,l:92},y=v=>pad.t+(2-v)/2*(H-pad.t-pad.b);let svg='';
+  [[2,'Fuera de servicio'],[1,'Alerta'],[0,'Normal']].forEach(([v,txt])=>{const yy=y(v);svg+=`<line x1="${pad.l}" y1="${yy}" x2="${W-pad.r}" y2="${yy}" stroke="${C.line}"/><text x="${pad.l-8}" y="${yy+3.5}" text-anchor="end" font-size="10" fill="${C.ink3}">${txt}</text>`;});return{pad,W,H,y,svg};
+}
+function waXPositions(n,pad,W){if(n<=1)return[pad.l+(W-pad.l-pad.r)/2];const span=W-pad.l-pad.r;return Array.from({length:n},(_,i)=>pad.l+span*i/(n-1));}
+function renderWADia(host,tab,def){
+  if(!host||!def)return;const c=waCfg(tab),slots=waSlots(tab,c.fecha),rows=slots.map(s=>waRegistro(tab,def.id,s,c.fecha));
+  if(!rows.some(Boolean)){host.innerHTML=`<div class="ptar-chart-empty">Sin registros de ${esc(def.variable)} para ${waFechaTxt(c.fecha,true)}.</div>`;return;}
+  const numeric=waEsNumerica(tab,def);const W=700,H=240;
+  if(numeric){
+    const vals=rows.filter(r=>r&&r.valor!==null&&r.valor!==undefined).map(r=>Number(r.valor)).filter(Number.isFinite);if(!vals.length){host.innerHTML=`<div class="ptar-chart-empty">Sin lecturas numéricas para esta variable.</div>`;return;}
+    const ax=waAxisNumeric(vals,W,H),xs=waXPositions(slots.length,ax.pad,W);let g=ax.svg,pts=[];
+    rows.forEach((r,i)=>{const x=xs[i],slot=slots[i];g+=`<text x="${x}" y="${H-10}" text-anchor="middle" font-size="10.2" fill="${C.ink3}">${esc(waShortTurn(slot.turno)+' · '+slot.reporteId)}</text>`;if(!r||r.valor===null||r.valor===undefined)return;const val=Number(r.valor),yy=ax.y(val),color=waColorEstado(r);pts.push([x,yy]);g+=`<circle cx="${x}" cy="${yy.toFixed(1)}" r="4.6" fill="${color}" stroke="#fff" stroke-width="1.5"><title>${esc(`${slot.operador||'Sin operador'} · ${waValorTexto(r,true)} · ${waEstadoTxt(r)}`)}</title></circle><text x="${x}" y="${Math.max(ax.pad.t+12,yy-8).toFixed(1)}" text-anchor="middle" font-size="10.4" font-weight="600" fill="${color}">${esc(waNumero(val))}</text>`;});
+    if(pts.length>1)g+=`<path d="${pts.map((p,i)=>(i?'L':'M')+p[0]+' '+p[1].toFixed(1)).join(' ')}" fill="none" stroke="${c.color}" stroke-width="2" opacity=".72"/>`;
+    host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(def.variable+' del día')}">${g}</svg>`;
+  }else{
+    const ax=waAxisStatus(W,H),xs=waXPositions(slots.length,ax.pad,W);let g=ax.svg,pts=[];
+    rows.forEach((r,i)=>{const x=xs[i],slot=slots[i];g+=`<text x="${x}" y="${H-10}" text-anchor="middle" font-size="10.2" fill="${C.ink3}">${esc(waShortTurn(slot.turno)+' · '+slot.reporteId)}</text>`;if(!r)return;const code=waStatusCode(r),yy=ax.y(code),color=waColorEstado(r);pts.push([x,yy]);g+=`<circle cx="${x}" cy="${yy.toFixed(1)}" r="5" fill="${color}" stroke="#fff" stroke-width="1.5"><title>${esc(`${slot.operador||'Sin operador'} · ${waValorTexto(r)} · ${waEstadoTxt(r)}`)}</title></circle><text x="${x}" y="${Math.max(ax.pad.t+12,yy-9).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="600" fill="${color}">${esc(waEstadoCorto(r))}</text>`;});
+    if(pts.length>1)g+=`<path d="${pts.map((p,i)=>(i?'L':'M')+p[0]+' '+p[1].toFixed(1)).join(' ')}" fill="none" stroke="${c.color}" stroke-width="2" opacity=".6"/>`;
+    host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(def.variable+' del día')}">${g}</svg>`;
+  }
+}
+function renderWAHistoricoCompleto(host,tab,def){
+  if(!host||!def)return;const c=waCfg(tab),rows=waRowsVar(tab,def.id,true).slice().sort(waSortRows);if(!rows.length){host.innerHTML=`<div class="ptar-chart-empty">Sin histórico fechado para ${esc(def.variable)}.</div>`;return;}
+  const numeric=waEsNumerica(tab,def),W=780,H=255,dates=[...new Set(rows.map(r=>r.fecha))],priority=rows.filter(waEsPrioridad).length;
+  const makeDateLabels=(xs,pad)=>{let s='';dates.forEach(d=>{const idxs=rows.map((r,i)=>r.fecha===d?i:-1).filter(i=>i>=0);if(!idxs.length)return;const x=idxs.reduce((a,i)=>a+xs[i],0)/idxs.length;s+=`<text x="${x.toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="9.8" fill="${C.ink3}">${esc(waFechaTxt(d,false))}</text>`;});return s;};
+  if(numeric){
+    const nums=rows.map(r=>r.valor).filter(v=>v!==null&&v!==undefined).map(Number).filter(Number.isFinite);if(!nums.length){host.innerHTML=`<div class="ptar-chart-empty">Sin histórico numérico de ${esc(def.variable)}.</div>`;return;}
+    const ax=waAxisNumeric(nums,W,H),xs=waXPositions(rows.length,ax.pad,W);let g=ax.svg+makeDateLabels(xs,ax.pad),pts=[];
+    rows.forEach((r,i)=>{if(r.valor===null||r.valor===undefined)return;const val=Number(r.valor),x=xs[i],yy=ax.y(val),color=waColorEstado(r);pts.push([x,yy]);g+=`<circle cx="${x.toFixed(1)}" cy="${yy.toFixed(1)}" r="${waEsPrioridad(r)?4.5:3.4}" fill="${color}" stroke="#fff" stroke-width="1.1"><title>${esc(`${waFechaTxt(r.fecha,true)} · ${waShortTurn(r.turno)} · ${r.operador||''} · ${waValorTexto(r,true)} · ${waEstadoTxt(r)}`)}</title></circle>`;});
+    if(pts.length>1)g+=`<path d="${pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ')}" fill="none" stroke="${c.color}" stroke-width="2" opacity=".7"/>`;
+    host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de ${esc(def.variable)}">${g}</svg><div class="ptar-history-foot"><span>${dates.length} días · ${rows.length} lecturas</span><span>${priority?priority+' prioritarias':'sin alertas reportadas'}</span></div>`;
+  }else{
+    const ax=waAxisStatus(W,H),xs=waXPositions(rows.length,ax.pad,W);let g=ax.svg+makeDateLabels(xs,ax.pad),pts=[];
+    rows.forEach((r,i)=>{const x=xs[i],yy=ax.y(waStatusCode(r)),color=waColorEstado(r);pts.push([x,yy]);g+=`<circle cx="${x.toFixed(1)}" cy="${yy.toFixed(1)}" r="${waEsPrioridad(r)?4.6:3.5}" fill="${color}" stroke="#fff" stroke-width="1.1"><title>${esc(`${waFechaTxt(r.fecha,true)} · ${waShortTurn(r.turno)} · ${r.operador||''} · ${waValorTexto(r)} · ${waEstadoTxt(r)}`)}</title></circle>`;});
+    if(pts.length>1)g+=`<path d="${pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ')}" fill="none" stroke="${c.color}" stroke-width="2" opacity=".62"/>`;
+    host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de estado de ${esc(def.variable)}">${g}</svg><div class="ptar-history-foot"><span>${dates.length} días · ${rows.length} reportes</span><span>${priority?priority+' condiciones prioritarias':'sin alertas reportadas'}</span></div>`;
+  }
+}
+function pintarWAGraficas(tab){
+  const c=waCfg(tab),host=document.getElementById(`${tab}-graficas-procesos`);if(!c||!host)return;const areas=waAreas(tab);
+  host.innerHTML=areas.map((area,ai)=>{const vars=waVarsArea(tab,area),v=waVariableGrafica(tab,area),histSel=waHistSel(tab,area);const opciones=vars.map(x=>`<option value="${x.id}" ${x.id===v.id?'selected':''}>${esc(x.equipo+' · '+x.variable)}</option>`).join('');const opHist=`<option value="__all__" ${histSel==='__all__'?'selected':''}>Todas las gráficas</option>`+vars.map(x=>`<option value="${x.id}" ${histSel===x.id?'selected':''}>${esc(x.equipo+' · '+x.variable)}</option>`).join('');const histVars=histSel==='__all__'?vars:vars.filter(x=>x.id===histSel);const historical=histVars.map((hv,vi)=>`<article class="ptar-history-var-card wa-history-card"><div class="ptar-history-var-h"><div><strong>${esc(hv.variable)}</strong><span>${esc(hv.equipo)}</span></div><span class="ptar-history-range">${esc(waCriterio(hv))}</span></div><div class="ptar-history-chart" data-wa-history="${tab}|${ai}|${hv.id}"></div></article>`).join('');return `<section class="card ptar-chart-process-card wa-theme wa-${tab}-theme" aria-labelledby="wa-${tab}-chart-${ai}"><div class="card-h"><div><h3 id="wa-${tab}-chart-${ai}">${esc(area)}</h3><span class="ptar-process-chart-sub">${vars.length} variables · histórico de reportes operacionales</span></div><label class="ptar-chart-selector">Variable para lectura del día<select data-wa-day-selector="${tab}|${ai}" aria-label="Variable del día a graficar de ${esc(area)}">${opciones}</select></label></div><div class="card-b"><div class="ptar-day-block"><div class="ptar-chart-meta"><strong>${esc(v.variable)}</strong><span>${esc(v.equipo)}</span><span>Criterio: ${esc(waCriterio(v))}</span>${v.unidad?`<span>Unidad: ${esc(v.unidad)}</span>`:''}</div><div class="ptar-chart-panel ptar-day-panel"><div class="ptar-chart-panel-h"><h4>Reportes del día seleccionado</h4><span class="sub">${waFechaTxt(c.fecha,true)} · turnos reportados 06:00–18:00 / 18:00–06:00</span></div><div class="ptar-process-chart" data-wa-day="${tab}|${ai}"></div></div></div><div class="ptar-all-history"><div class="ptar-all-history-h"><div><h4>Comportamiento histórico de todas las variables</h4><p>Selecciona una gráfica específica o muestra todas las variables del área.</p></div><div class="history-toolbar"><label class="history-chart-selector">Gráfica a visualizar<select data-wa-history-selector="${tab}|${ai}" aria-label="Gráfica histórica a visualizar de ${esc(area)}">${opHist}</select></label><span class="wa-history-key"><i class="ok"></i>Normal <i class="warn"></i>Alerta <i class="crit"></i>Fuera de servicio</span></div></div><div class="ptar-history-grid ${histSel==='__all__'?'':'is-single'}">${historical}</div></div></div></section>`;}).join('');
+  areas.forEach((area,ai)=>{const v=waVariableGrafica(tab,area);renderWADia(host.querySelector(`[data-wa-day="${tab}|${ai}"]`),tab,v);host.querySelectorAll(`[data-wa-history^="${tab}|${ai}|"]`).forEach(el=>{const id=el.getAttribute('data-wa-history').split('|')[2],def=waDef(tab,id);renderWAHistoricoCompleto(el,tab,def);});});
+  host.querySelectorAll('[data-wa-day-selector]').forEach(sel=>sel.addEventListener('change',()=>{const [t,idx]=sel.dataset.waDaySelector.split('|');const area=waAreas(t)[Number(idx)],cfg=waCfg(t);if(area&&cfg){cfg.graficaVar[area]=sel.value;pintarWAGraficas(t);}}));
+  host.querySelectorAll('[data-wa-history-selector]').forEach(sel=>sel.addEventListener('change',()=>{const [t,idx]=sel.dataset.waHistorySelector.split('|');const area=waAreas(t)[Number(idx)],cfg=waCfg(t);if(area&&cfg){cfg.historicoSel[area]=sel.value;pintarWAGraficas(t);}}));
+}
+function waPoblarFechas(tab){
+  const c=waCfg(tab);if(!c)return;const sels=[document.getElementById(`${tab}-date-select`),document.getElementById(`${tab}-summary-date-select`)].filter(Boolean);
+  const tieneSinFecha=c.data.some(r=>!r.fecha);const opciones=c.fechas.map(f=>`<option value="${f}">${waFechaTxt(f,true)}</option>`).join('')+(tieneSinFecha?`<option value="__sin_fecha__">Sin fecha exacta</option>`:'');
+  sels.forEach(sel=>{sel.innerHTML=opciones;sel.value=c.fecha||'';if(!sel.dataset.bound){sel.dataset.bound='1';sel.addEventListener('change',()=>{c.fecha=sel.value;sels.forEach(s=>s.value=c.fecha);pintarWA(tab);pintarValores();pintarEncabezado();pintarPrioridades();});}});
+}
+function waProcessSummary(tab,area){const st=waStats(tab,area),e=waEstadoServicio(st);return `<div class="ptar-summary-process"><div class="ptar-summary-process-h"><strong>${esc(area)}</strong><span class="pill ${e.st}"><i></i>${esc(e.txt)}</span></div><div class="ptar-summary-process-v"><b>${st.variables}</b> variables · ${st.registradas} registros · ${st.prioridad} prioritarios</div><div class="ptar-progress"><i style="width:${st.ok+st.warn+st.crit?st.pctNormal.toFixed(1):0}%"></i></div></div>`;}
+function pintarWADeviaciones(tab){
+  const c=waCfg(tab),host=document.getElementById(`${tab}-desviaciones`),count=document.getElementById(`${tab}-desv-count`);if(!c||!host)return;const list=waRowsFecha(tab).filter(waEsPrioridad).slice().sort((a,b)=>(waEstadoClase(a)==='crit'?0:1)-(waEstadoClase(b)==='crit'?0:1)||String(a.area).localeCompare(String(b.area),'es'));
+  if(count)count.textContent=list.length?`${list.length} detectada${list.length===1?'':'s'}`:'ninguna';
+  host.innerHTML=list.length?list.map(r=>`<div class="ptar-dev wa-dev ${waEstadoClase(r)}"><span class="bar" style="background:${waColorEstado(r)}"></span><div class="body"><div class="title">${esc(r.equipo)} · ${esc(r.variable)} · ${esc(waValorTexto(r,true))}</div><div class="meta">${esc(r.area)} · ${esc(waEstadoTxt(r))} · ${esc(r.reporteId||'')}</div>${r.operador?`<div class="obs">Operador: ${esc(r.operador)}</div>`:''}${r.observacion?`<div class="obs">${esc(r.observacion)}</div>`:''}</div><time>${esc(waShortTurn(r.turno))}</time></div>`).join(''):`<p class="empty">No hay alertas ni condiciones fuera de servicio reportadas el ${waFechaTxt(c.fecha,true)}.</p>`;
+}
+function pintarWA(tab){
+  const c=waCfg(tab);if(!c||!c.catalogo.length)return;waPoblarFechas(tab);const total=waStats(tab),eTotal=waEstadoServicio(total),areas=waAreas(tab);
+  document.querySelectorAll(`[data-${tab}-summary-count]`).forEach(el=>el.textContent=String(total.registradas));
+  const sumPill=document.querySelector(`[data-${tab}-summary-pill]`);if(sumPill){sumPill.className='pill '+eTotal.st;sumPill.innerHTML='<i></i>'+esc(eTotal.txt);}
+  const stripVal=document.querySelector(`[data-${tab}-strip-value]`);if(stripVal)stripVal.textContent=String(total.prioridad);
+  const stripPill=document.querySelector(`[data-${tab}-strip-pill]`);if(stripPill){stripPill.className='pill '+eTotal.st;stripPill.innerHTML='<i></i>'+esc(eTotal.txt);}
+  const resumen=document.getElementById(`${tab}-resumen-procesos`);if(resumen)resumen.innerHTML=areas.map(a=>waProcessSummary(tab,a)).join('');
+  if(typeof activa!=='undefined' && activa!==tab) return;
+  const kpis=document.getElementById(`${tab}-kpis-proceso`);if(kpis)kpis.innerHTML=areas.map(a=>{const st=waStats(tab,a),e=waEstadoServicio(st);return `<div class="kpi wa-process-kpi wa-${tab}-kpi"><div class="lbl"><span>${esc(a)}</span><span class="pill ${e.st}" style="margin-left:auto"><i></i>${esc(e.txt)}</span></div><div class="v tnum">${st.registradas}<small>registros</small></div><div class="rng">${st.variables} variables · ${st.crit} críticas · ${st.warn} alertas</div><div class="ptar-progress"><i style="width:${st.ok+st.warn+st.crit?st.pctNormal.toFixed(1):0}%"></i></div></div>`;}).join('');
+  const processHost=document.getElementById(`${tab}-procesos`);if(processHost){const slots=waSlots(tab),slotHeaders=slots.map(s=>`<th class="num">${esc(waShortTurn(s.turno))}<small>${esc(s.operador||'Sin operador')} · ${esc(s.reporteId||'')}</small></th>`).join('');processHost.innerHTML=areas.map((area,ai)=>{const vars=waVarsArea(tab,area),st=waStats(tab,area),e=waEstadoServicio(st);const byEquip=new Map();vars.forEach(v=>{if(!byEquip.has(v.equipo))byEquip.set(v.equipo,[]);byEquip.get(v.equipo).push(v);});const rows=[...byEquip.entries()].map(([eq,vlist])=>vlist.map((v,i)=>{const eqCell=i===0?`<td class="ptar-puesto" rowspan="${vlist.length}">${esc(eq)}</td>`:'';const recs=slots.map(s=>waRegistro(tab,v.id,s,c.fecha));const hasPriority=recs.some(waEsPrioridad);const cells=recs.map(r=>{const stc=waEstadoClase(r);return `<td class="num ptar-lectura wa-cell ${stc}" title="${esc(r?waEstadoTxt(r):'Sin dato')}">${r?`${r.indicador?`<span class="wa-indicator">${esc(r.indicador)}</span> `:''}${esc(waValorTexto(r,true))}`:'—'}</td>`;}).join('');return `<tr class="${hasPriority?'has-dev':''}">${eqCell}<td>${esc(v.variable)}</td><td class="ptar-rango">${esc(waCriterio(v))}</td>${cells}</tr>`;}).join('')).join('');return `<section class="card ptar-process-card wa-theme wa-${tab}-theme" aria-labelledby="wa-${tab}-proc-${ai}"><div class="card-h"><h3 id="wa-${tab}-proc-${ai}">${esc(area)}</h3><span class="pill ${e.st}"><i></i>${esc(e.txt)}</span><span class="note">${waFechaTxt(c.fecha,true)} · ${st.registradas} registros</span></div><div class="card-b ptar-table-wrap"><table class="tbl ptar-table wa-real-table"><thead><tr><th>Equipo</th><th>Variable</th><th>Criterio / rango disponible</th>${slotHeaders}</tr></thead><tbody>${rows}</tbody></table></div></section>`;}).join('');}
+  pintarWAGraficas(tab);pintarWADeviaciones(tab);
+}
+function prioridadWA(tab){
+  const c=waCfg(tab);if(!c)return[];const rows=waRowsFecha(tab).filter(waEsPrioridad),m=new Map();rows.forEach(r=>{if(!m.has(r.id))m.set(r.id,{tipo:'wa',waTab:tab,servicio:c.nombre,tab,color:c.color,id:r.id,def:waDef(tab,r.id),rows:[]});m.get(r.id).rows.push(r);});
+  return [...m.values()].map(g=>{g.rows.sort(waSortRows);const r=g.rows[0],last=g.rows[g.rows.length-1],def=g.def||{},crit=g.rows.some(x=>waEstadoClase(x)==='crit');return Object.assign(g,{severity:crit?'crit':'warn',variable:r.variable,proceso:r.area,puesto:r.equipo,rango:waCriterio(def),unidad:def.unidad||r.unidad||'',fecha:c.fecha,fechaTxt:waFechaTxt(c.fecha,true),lecturas:g.rows.map(x=>`${waShortTurn(x.turno)} · ${waValorTexto(x,true)} · ${waEstadoTxt(x)}`).join(' · '),operadores:[...new Set(g.rows.map(x=>x.operador).filter(Boolean))].join(' / '),observacion:[...new Set(g.rows.map(x=>x.observacion).filter(Boolean))].join(' · '),lecturaPrincipal:waValorTexto(last),turnoPrincipal:waShortTurn(last.turno)});});
+}
+function cargarWA(tab,data,catalogo,fechas,source){const c=waCfg(tab);if(!c)return;c.data=(data||[]).slice();c.catalogo=(catalogo||[]).slice();c.fechas=[...new Set((fechas&&fechas.length?fechas:c.data.map(r=>r.fecha).filter(Boolean)))].sort();if(!c.fecha||!c.fechas.includes(c.fecha))c.fecha=c.fechas[c.fechas.length-1]||null;c.source=source||c.source;waPoblarFechas(tab);if(document.body&&document.body.dataset.dashboardReady==='1'){pintarWA(tab);pintarValores();pintarEncabezado();pintarPrioridades();}}
+function waExcelDate(v){if(v===null||v===undefined||v==='')return null;if(typeof v==='number'){const d=new Date(Date.UTC(1899,11,30));d.setUTCDate(d.getUTCDate()+Math.floor(v));return d.toISOString().slice(0,10);}const s=String(v).trim();if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;const m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);if(m){let y=Number(m[3]);if(y<100)y+=2000;return `${y}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;}return null;}
+function waObjs(rows){if(!rows||!rows.length)return[];const h=rows[0].map(x=>String(x??'').trim());return rows.slice(1).filter(r=>r.some(v=>v!==''&&v!==null&&v!==undefined)).map(r=>{const o={};h.forEach((k,i)=>{if(k)o[k]=r[i]??'';});return o;});}
+function waBuildCatalog(rows,areas,prefix){let n=0;return rows.filter(r=>areas.includes(String(r['Proceso / Área']||'').trim())).map(r=>({id:`${prefix}_${String(++n).padStart(2,'0')}`,area:String(r['Proceso / Área']||'').trim(),equipo:String(r['Equipo / Puesto']||'').trim(),variable:String(r.Variable||'').trim(),unidad:String(r.Unidad||'').trim(),tipoDato:String(r['Tipo de dato']||'').trim(),rango:String(r['Rango operativo']||'').trim(),criterio:String(r['Criterio disponible en fuente']||'').trim()}));}
+function waNormalizeExcelData(rows,catalogo,areas){const map=new Map(catalogo.map(v=>[[v.area,v.equipo,v.variable].join('|'),v.id]));return rows.filter(r=>String(r['Incluir dashboard']||'').trim().toLowerCase()==='sí'&&areas.includes(String(r['Proceso / Área']||'').trim())).map(r=>{const area=String(r['Proceso / Área']||'').trim(),equipo=String(r['Equipo / Puesto']||'').trim(),variable=String(r.Variable||'').trim(),id=map.get([area,equipo,variable].join('|'));if(!id)return null;const raw=r['Valor numérico'],num=raw===''||raw===null||raw===undefined?null:Number(raw);return{fecha:waExcelDate(r['Fecha operativa']),confianzaFecha:String(r['Confianza fecha']||''),turno:String(r.Turno||''),turnoOriginal:String(r['Turno original']||''),operador:String(r.Operador||''),reporteId:String(r['Reporte ID']||''),area,equipo,variable,valor:Number.isFinite(num)?num:null,texto:String(r['Valor texto']||''),unidad:String(r.Unidad||''),indicador:String(r.Indicador||''),estado:String(r['Estado normalizado']||''),observacion:String(r.Observación||''),linea:String(r['Línea original']||''),id};}).filter(Boolean);}
+async function leerExcelWA(buffer){
+  const zip=await abrirZipPTAR(buffer),parser=new DOMParser(),wbXml=parser.parseFromString(await zip.text('xl/workbook.xml'),'application/xml'),relXml=parser.parseFromString(await zip.text('xl/_rels/workbook.xml.rels'),'application/xml'),rels=[...relXml.getElementsByTagNameNS('*','Relationship')];let shared=[];
+  if(zip.entries.has('xl/sharedStrings.xml')){const ssXml=parser.parseFromString(await zip.text('xl/sharedStrings.xml'),'application/xml');shared=[...ssXml.getElementsByTagNameNS('*','si')].map(si=>[...si.getElementsByTagNameNS('*','t')].map(t=>t.textContent||'').join(''));}
+  const sheets=[...wbXml.getElementsByTagNameNS('*','sheet')];async function getSheet(name){const sh=sheets.find(s=>s.getAttribute('name')===name);if(!sh)throw new Error(`No existe la hoja "${name}".`);const rid=sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id')||sh.getAttribute('r:id'),rel=rels.find(r=>r.getAttribute('Id')===rid);if(!rel)throw new Error('No se pudo resolver '+name);let target=rel.getAttribute('Target').replace(/^\//,'');if(!target.startsWith('xl/'))target='xl/'+target.replace(/^\.\//,'');return leerHojaXLSXPTAR(zip,target,shared);}
+  return{datos:waObjs(await getSheet('Datos Dashboard')),catalogo:waObjs(await getSheet('Catálogo'))};
+}
+function cargarExcelWAParseado(parsed,source){const ac=waBuildCatalog(parsed.catalogo,WA_CFG.aire.areasPermitidas,'aire'),nc=waBuildCatalog(parsed.catalogo,WA_CFG.frio.areasPermitidas,'nh3'),ad=waNormalizeExcelData(parsed.datos,ac,WA_CFG.aire.areasPermitidas),nd=waNormalizeExcelData(parsed.datos,nc,WA_CFG.frio.areasPermitidas);if(!ad.length&&!nd.length)throw new Error('No se encontraron registros válidos para Compresores de Aire o Refrigeración/NH3.');cargarWA('aire',ad,ac,[...new Set(ad.map(r=>r.fecha).filter(Boolean))],source);cargarWA('frio',nd,nc,[...new Set(nd.map(r=>r.fecha).filter(Boolean))],source);}
+async function cargarExcelWAArchivo(file){const parsed=await leerExcelWA(await file.arrayBuffer());cargarExcelWAParseado(parsed,`${file.name} · ${parsed.datos.length} filas · archivo seleccionado`);}
+async function cargarWAAutomatico(){if(location.protocol==='file:')return;try{const resp=await fetch('Historial_Reportes_Compresores_Refrigeracion_WhatsApp.xlsx',{cache:'no-store'});if(!resp.ok)throw new Error('HTTP '+resp.status);const parsed=await leerExcelWA(await resp.arrayBuffer());cargarExcelWAParseado(parsed,`Historial_Reportes_Compresores_Refrigeracion_WhatsApp.xlsx · carga automática`);}catch(err){}}
+function inicializarWAExcel(){['aire-excel-input','frio-excel-input'].forEach(id=>{const input=document.getElementById(id);if(input&&!input.dataset.bound){input.dataset.bound='1';input.addEventListener('change',async()=>{const f=input.files&&input.files[0];if(!f)return;try{await cargarExcelWAArchivo(f);}catch(err){alert('No se pudo leer el Excel de Compresores/Refrigeración: '+err.message);}finally{input.value='';}});}});cargarWAAutomatico();}
+
+
+
+/* ---------------------------------------------------------
+   9B. Prioridad operacional · variables fuera de rango
+   Se muestra antes que el resto del contenido en Resumen y en cada pestaña.
+   --------------------------------------------------------- */
+function prioridadReal(tipo){
+  let rows=[], defFn=null, valorFn=null, fecha='', fechaFn=null, turnoFn=t=>t, color=C.crit, servicio='', tab='';
+  if(tipo==='ptar'){
+    rows=registrosFechaPTAR().filter(r=>estadoRegistroPTAR(r)==='FUERA DE RANGO');
+    defFn=ptarDefPorId; valorFn=valorTextoPTAR; fecha=PTAR_FECHA; fechaFn=etiquetaFechaPTAR; color=C.ptar; servicio='PTAR'; tab='ptar';
+  }else if(tipo==='vapor'){
+    rows=registrosFechaVapor().filter(r=>estadoRegistroVapor(r)==='FUERA DE RANGO');
+    defFn=vaporDefPorId; valorFn=valorTextoVapor; fecha=VAPOR_FECHA; fechaFn=etiquetaFechaVapor; color=C.vapor; servicio='Vapor'; tab='vapor';
+  }else if(tipo==='suav'){
+    rows=registrosFechaSuav().filter(r=>estadoRegistroSuav(r)==='FUERA DE RANGO');
+    defFn=suavDefPorId; valorFn=valorTextoSuav; fecha=SUAV_FECHA; fechaFn=etiquetaFechaSuav; color=C.suav; servicio='Suavizadores · Tanques'; tab='suav';
+    turnoFn=t=>SUAV_TURNO_ETIQUETA[t]||t;
+  }else if(tipo==='ptab'){
+    rows=registrosFechaPtabr().filter(r=>estadoRegistroPtabr(r)==='FUERA DE RANGO');
+    defFn=ptabrDefPorId; valorFn=valorTextoPtabr; fecha=PTABR_FECHA; fechaFn=etiquetaFechaPtabr; color=C.agua; servicio='PTAB · Aguas Blancas'; tab='ptab';
+    turnoFn=t=>PTABR_TURNO_ETIQUETA[t]||t;
+  }
+  const map=new Map();
+  rows.forEach(r=>{
+    if(!map.has(r.id)) map.set(r.id,{tipo,servicio,tab,color,id:r.id,def:defFn(r.id),rows:[]});
+    map.get(r.id).rows.push(r);
+  });
+  return [...map.values()].map(g=>{
+    const r=g.rows[0], v=g.def||{};
+    const lecturas=g.rows.map(x=>`${turnoFn(x.turno)} · ${valorFn(x)}${v.unidad?' '+v.unidad:''}`).join(' · ');
+    const operadores=[...new Set(g.rows.map(x=>x.operador).filter(Boolean))].join(' / ');
+    const obs=[...new Set(g.rows.map(x=>x.observacion).filter(Boolean))].join(' · ');
+    return Object.assign(g,{
+      severity:'crit', variable:r.variable, proceso:r.proceso,
+      puesto:r.puesto||r.frecuencia||'', rango:r.rango||v.rango||'—', unidad:v.unidad||'',
+      fecha, fechaTxt:fechaFn(fecha,true), lecturas, operadores, observacion:obs,
+      lecturaPrincipal:valorFn(g.rows[g.rows.length-1]), turnoPrincipal:turnoFn(g.rows[g.rows.length-1].turno)
+    });
+  });
+}
+function prioridadSimulada(tab){
+  const svc=SERVICIOS[tab];
+  if(!svc || !svc.keys) return [];
+  return svc.keys.filter(k=>estado(k)!=='ok').map(k=>{
+    const st=estado(k), v=V[k];
+    return {tipo:'sim',servicio:svc.nom,tab,color:svc.color||C.ink,id:k,def:v,rows:[],severity:st,
+      variable:v.lbl,proceso:svc.nom,puesto:'Lectura de '+RONDAS[ronda].hora,rango:rangoTexto(k),unidad:v.u||'',
+      fecha:'',fechaTxt:FECHA,lecturas:`${RONDAS[ronda].hora} · ${fmt(k)}${v.u?' '+v.u:''}`,
+      operadores:'',observacion:'',lecturaPrincipal:fmt(k),turnoPrincipal:RONDAS[ronda].hora};
+  });
+}
+function prioridadesTab(tab){
+  if(tab==='ptar') return prioridadReal('ptar');
+  if(tab==='vapor') return prioridadReal('vapor');
+  if(tab==='suav') return prioridadReal('suav');
+  if(tab==='ptab') return prioridadReal('ptab');
+  if(tab==='aire'||tab==='frio') return prioridadWA(tab);
+  return [];
+}
+function prioridadesResumen(){
+  const all=[
+    ...prioridadReal('ptab'),...prioridadReal('suav'),...prioridadReal('vapor'),...prioridadWA('aire'),...prioridadWA('frio'),...prioridadReal('ptar')
+  ];
+  return all.sort((a,b)=>{
+    const rank=s=>s==='crit'?0:1;
+    return rank(a.severity)-rank(b.severity) || a.servicio.localeCompare(b.servicio,'es');
+  });
+}
+function prioridadDetalle(item){
+  const parts=[];
+  if(item.proceso && item.proceso!==item.servicio) parts.push(`<b>${esc(item.proceso)}</b>`);
+  if(item.puesto) parts.push(esc(item.puesto));
+  if(item.fechaTxt) parts.push(esc(item.fechaTxt));
+  return parts.join(' · ');
+}
+function prioridadRenderGrafica(host,item){
+  if(!host) return;
+  if(item.tipo==='ptar' && item.def){ renderPTARHistoricoCompleto(host,item.def); return; }
+  if(item.tipo==='vapor' && item.def){ renderVaporHistoricoCompleto(host,item.def); return; }
+  if(item.tipo==='suav' && item.def){ renderSuavHistoricoCompleto(host,item.def); return; }
+  if(item.tipo==='ptab' && item.def){ renderPtabrHistoricoCompleto(host,item.def); return; }
+  if(item.tipo==='wa' && item.def){ renderWAHistoricoCompleto(host,item.waTab,item.def); return; }
+  if(item.tipo==='sim'){
+    const k=item.id,v=V[k], limits=[], bands=[];
+    if(v.dir==='band'){
+      bands.push({lo:v.lo,hi:v.hi,color:item.color});
+      limits.push({v:v.lo,color:C.warn,txt:'mín. '+fmt(k,v.lo)},{v:v.hi,color:C.warn,txt:'máx. '+fmt(k,v.hi)});
+    }else if(v.dir==='high'){
+      limits.push({v:v.warn,color:C.warn,txt:'aviso '+fmt(k,v.warn)},{v:v.crit,color:C.crit,txt:'crítico '+fmt(k,v.crit)});
+    }else if(v.dir==='low'){
+      limits.push({v:v.warn,color:C.warn,txt:'aviso '+fmt(k,v.warn)},{v:v.crit,color:C.crit,txt:'crítico '+fmt(k,v.crit)});
+    }
+    renderLine(host,{h:165,unit:v.u||'',dec:v.dec,aria:'Tendencia prioritaria de '+v.lbl,
+      series:[{name:v.lbl,color:item.color,get:()=>win(k),area:true}],limits,bands});
+  }
+}
+const PRIORITY_PAGE = Object.create(null);
+const PRIORITY_DIR = Object.create(null);
+const PRIORITY_PAGE_SIZE = 3;
+function renderPriorityZone(host,items,tab){
+  if(!host) return;
+  const isResumen=tab==='resumen', crit=items.filter(x=>x.severity==='crit').length, warn=items.length-crit;
+  host.className='priority-zone mb '+(items.length?(crit?'has-alerts':'has-warnings'):'is-ok');
+  const title=isResumen?'Prioridad operacional · desviaciones y condiciones fuera de norma':'Desviaciones y condiciones prioritarias';
+  const sub=isResumen
+    ? 'Las desviaciones, alertas y equipos fuera de servicio se muestran antes que cualquier otro indicador para facilitar la actuación del operador.'
+    : 'Se muestran primero las variables que requieren atención en la fecha seleccionada, junto con su comportamiento.';
+  const head=`<div class="priority-head"><div class="priority-title-wrap"><span class="priority-icon">${items.length?'!':'✓'}</span><div><h3>${title}</h3><p>${sub}</p></div></div><div class="priority-count">${items.length?`<span class="pill crit"><i></i>${items.length} variable${items.length===1?'':'s'} prioritaria${items.length===1?'':'s'}</span>${warn?`<span class="pill warn"><i></i>${warn} en atención</span>`:''}`:`<span class="pill ok"><i></i>Sin desviaciones</span>`}</div></div>`;
+  if(!items.length){
+    PRIORITY_PAGE[tab]=0;
+    PRIORITY_DIR[tab]=1;
+    host.innerHTML=head+`<div class="priority-body"><div class="priority-ok"><span class="pill ok"><i></i>Normal</span><div><strong>No hay variables fuera de rango.</strong><br><span>Continúa con la revisión del resto de indicadores y registros.</span></div></div></div>`;
+    return;
+  }
+
+  const pages=Math.max(1,Math.ceil(items.length/PRIORITY_PAGE_SIZE));
+  let page=Math.min(Math.max(PRIORITY_PAGE[tab]||0,0),pages-1);
+  PRIORITY_PAGE[tab]=page;
+  const from=page*PRIORITY_PAGE_SIZE;
+  const shown=items.slice(from,from+PRIORITY_PAGE_SIZE);
+  const slideClass=(PRIORITY_DIR[tab]||1)<0?'priority-slide-prev':'priority-slide-next';
+
+  const cards=shown.map((it,localIndex)=>{
+    const originalIndex=from+localIndex;
+    const sev=it.severity==='warn'?'warn':'';
+    const rango=it.rango||'—';
+    const oper=it.operadores?`<span><b>Operador:</b> ${esc(it.operadores)}</span>`:'';
+    const obs=it.observacion?`<div class="priority-detail"><strong>Observación:</strong> ${esc(it.observacion)}</div>`:'';
+    const lecturaDetalle=it.rows&&it.rows.length>1?`<div class="priority-detail"><strong>Lecturas fuera de rango:</strong> ${esc(it.lecturas)}</div>`:'';
+    return `<article class="priority-card ${sev}">
+      <div class="priority-card-head"><div class="priority-card-title"><div class="priority-card-service">${esc(it.servicio)}</div><h4>${esc(it.variable)}</h4></div><div class="priority-reading">${esc(it.lecturaPrincipal)}${it.unidad?`<small>${esc(it.unidad)}</small>`:''}</div></div>
+      <div class="priority-meta"><span>${prioridadDetalle(it)}</span><span><b>${it.tipo==='wa'?'Criterio':'Rango'}:</b> ${esc(rango)}</span><span><b>Turno:</b> ${esc(it.turnoPrincipal||'—')}</span>${oper}</div>
+      ${lecturaDetalle}${obs}
+      <div class="priority-chart-wrap"><div class="priority-chart-label"><span>Comportamiento de la variable</span><span>${it.tipo==='sim'?'ronda actual':'histórico disponible'}</span></div><div class="priority-chart" data-priority-chart="${originalIndex}"></div></div>
+      ${isResumen?`<div class="priority-actions"><button class="priority-go" type="button" data-goto="${esc(it.tab)}">Abrir ${esc(it.servicio)} →</button></div>`:''}
+    </article>`;
+  }).join('');
+
+  const pager=pages>1?`<div class="priority-pager-wrap">
+    <div class="priority-pager" role="group" aria-label="Navegación de variables fuera de rango">
+      <button class="priority-page-btn" type="button" data-priority-prev aria-label="Ver tres variables anteriores" ${page===0?'disabled':''}><span aria-hidden="true">←</span></button>
+      <div class="priority-page-status" aria-live="polite">
+        <span class="priority-page-range"><strong>${from+1}–${Math.min(from+PRIORITY_PAGE_SIZE,items.length)}</strong> de ${items.length}</span>
+        <span class="priority-page-dots" aria-hidden="true">${Array.from({length:pages},(_,i)=>`<i class="${i===page?'active':''}"></i>`).join('')}</span>
+        <span class="priority-page-number">${page+1} / ${pages}</span>
+      </div>
+      <button class="priority-page-btn" type="button" data-priority-next aria-label="Ver tres variables siguientes" ${page===pages-1?'disabled':''}><span aria-hidden="true">→</span></button>
+    </div>
+  </div>`:'';
+
+  host.innerHTML=head+`<div class="priority-body"><div class="priority-carousel"><div class="priority-grid ${slideClass}">${cards}</div></div>${pager}</div>`;
+
+  shown.forEach((it,localIndex)=>{
+    const originalIndex=from+localIndex;
+    prioridadRenderGrafica(host.querySelector(`[data-priority-chart="${originalIndex}"]`),it);
+  });
+
+  const prev=host.querySelector('[data-priority-prev]');
+  const next=host.querySelector('[data-priority-next]');
+  if(prev) prev.addEventListener('click',()=>{
+    if(PRIORITY_PAGE[tab]>0){
+      PRIORITY_DIR[tab]=-1;
+      PRIORITY_PAGE[tab]-=1;
+      renderPriorityZone(host,items,tab);
+    }
+  });
+  if(next) next.addEventListener('click',()=>{
+    if(PRIORITY_PAGE[tab]<pages-1){
+      PRIORITY_DIR[tab]=1;
+      PRIORITY_PAGE[tab]+=1;
+      renderPriorityZone(host,items,tab);
+    }
+  });
+}
+function pintarPrioridades(){
+  renderPriorityZone(document.getElementById('priority-resumen'),prioridadesResumen(),'resumen');
+  const tabActual=(typeof activa!=='undefined'&&activa)?activa:'resumen';
+  if(tabActual!=='resumen') renderPriorityZone(document.getElementById('priority-'+tabActual),prioridadesTab(tabActual),tabActual);
+}
+
+/* ---------------------------------------------------------
+   10. Construcción de la interfaz
    --------------------------------------------------------- */
 const LINEAS = [
   {n:'Mayonesa',        prog:[12, 45, 78], tasa:['1 900 kg/h','4 200 kg/h','4 600 kg/h']},
@@ -1965,14 +2826,46 @@ function buildKPIs(){
   });
 }
 function buildStrip(){
-  document.getElementById('strip').innerHTML = ['ptab','vapor','aire','frio','ptar'].map(id=>{
+  document.getElementById('strip').innerHTML = ['ptab','suav','vapor','aire','frio','ptar'].map(id=>{
     const s = SERVICIOS[id];
+    if(id === 'ptab'){
+      return `<button class="svc" data-goto="ptab" style="--k:${s.color}">
+        <div class="n"><span>${esc(s.corto)}</span><span class="pill idle" data-ptab-strip-pill style="margin-left:auto"><i></i>Sin registros</span></div>
+        <p class="lbl">Aguas Blancas · 2 procesos · 39 variables</p>
+        <div class="v tnum"><span data-ptab-strip-value>—</span><small>fuera de rango</small></div>
+        <div class="svc-meta">1er turno 06:00 am · 2do turno 06:00 pm</div>
+      </button>`;
+    }
+    if(id === 'suav'){
+      return `<button class="svc" data-goto="suav" style="--k:${s.color}">
+        <div class="n"><span>${esc(s.corto)}</span><span class="pill idle" data-suav-strip-pill style="margin-left:auto"><i></i>Sin registros</span></div>
+        <p class="lbl">Suavizadores + tanques · 2 procesos · 29 variables</p>
+        <div class="v tnum"><span data-suav-strip-value>—</span><small>fuera de rango</small></div>
+        <div class="svc-meta">1er turno 06:00 · 2do turno 06:00</div>
+      </button>`;
+    }
     if(id === 'vapor'){
       return `<button class="svc" data-goto="vapor" style="--k:${s.color}">
         <div class="n"><span>${esc(s.corto)}</span><span class="pill idle" data-vapor-strip-pill style="margin-left:auto"><i></i>Sin registros</span></div>
         <p class="lbl">Control de calderas · 6 procesos · 58 variables</p>
         <div class="v tnum"><span data-vapor-strip-value>—</span><small>fuera de rango</small></div>
         <div class="svc-meta">Turnos 07:00 · 19:00</div>
+      </button>`;
+    }
+    if(id === 'aire'){
+      return `<button class="svc" data-goto="aire" style="--k:${s.color}">
+        <div class="n"><span>${esc(s.corto)}</span><span class="pill idle" data-aire-strip-pill style="margin-left:auto"><i></i>Sin registros</span></div>
+        <p class="lbl">Compresores + trampas de aire · 2 áreas · 9 variables</p>
+        <div class="v tnum"><span data-aire-strip-value>—</span><small>prioritarias</small></div>
+        <div class="svc-meta">Turnos 06:00–18:00 · 18:00–06:00</div>
+      </button>`;
+    }
+    if(id === 'frio'){
+      return `<button class="svc" data-goto="frio" style="--k:${s.color}">
+        <div class="n"><span>${esc(s.corto)}</span><span class="pill idle" data-frio-strip-pill style="margin-left:auto"><i></i>Sin registros</span></div>
+        <p class="lbl">Refrigeración / NH₃ · 8 áreas · 37 variables</p>
+        <div class="v tnum"><span data-frio-strip-value>—</span><small>prioritarias</small></div>
+        <div class="svc-meta">Turnos 06:00–18:00 · 18:00–06:00</div>
       </button>`;
     }
     if(id === 'ptar'){
@@ -2005,7 +2898,9 @@ function buildLegends(){
   put('#l-frio-pres', find('#c-frio-pres'));
 }
 function pintarLineas(){
-  document.getElementById('lineas-prod').innerHTML = LINEAS.map(l=>
+  const host=document.getElementById('lineas-prod');
+  if(!host) return;
+  host.innerHTML = LINEAS.map(l=>
     `<div class="line-row">
        <span class="nm">${esc(l.n)}</span>
        <span class="meter"><i style="width:${l.prog[ronda]}%"></i></span>
@@ -2034,8 +2929,9 @@ function alarmas(){
   return out.sort((a,b)=> (a.st === 'crit' ? 0 : 1) - (b.st === 'crit' ? 0 : 1));
 }
 function pintarAlarmas(){
-  const box = document.getElementById('alarmas'), list = alarmas();
-  document.getElementById('alarm-count').textContent = list.length ? `${list.length} sin atender` : 'ninguna';
+  const box = document.getElementById('alarmas'), count = document.getElementById('alarm-count'), list = alarmas();
+  if(!box || !count) return;
+  count.textContent = list.length ? `${list.length} sin atender` : 'ninguna';
   box.innerHTML = list.length ? list.slice(0,7).map(a=>
     `<div class="alarm" style="--k:${a.st === 'crit' ? C.crit : C.warn}">
        <span class="bar"></span>
@@ -2045,7 +2941,8 @@ function pintarAlarmas(){
     : `<p class="empty">Sin desviaciones en la ronda de las ${RONDAS[ronda].hora}.</p>`;
 }
 function pintarDetectores(){
-  document.getElementById('detectores').innerHTML = DETECTORES.map(d=>{
+  const host=document.getElementById('detectores'); if(!host) return;
+  host.innerHTML = DETECTORES.map(d=>{
     const p = d.ppm[ronda], st = p >= 35 ? 'crit' : p >= 25 ? 'warn' : 'ok';
     return `<div class="sensor ${st}">
       <div class="n"><strong>${d.id}</strong><span class="pill ${st}" style="margin-left:auto"><i></i>${ETIQ[st]}</span></div>
@@ -2085,12 +2982,23 @@ function pintarValores(){
     if(!dot) continue;
     let st = 'ok';
     if(svc === 'resumen'){
-      const all = alarmas();
-      const desvVapor = typeof vaporStats === 'function' ? vaporStats().desviaciones : 0;
-      const desvPTAR = typeof ptarStats === 'function' ? ptarStats().desviaciones : 0;
-      st = all.some(a=>a.st === 'crit') ? 'crit' : (all.length || desvVapor || desvPTAR) ? 'warn' : 'ok';
+      const states=[
+        ptabrEstado(ptabrStats()).st,
+        suavEstado(suavStats()).st,
+        vaporEstado(vaporStats()).st,
+        waEstadoServicio(waStats('aire')).st,
+        waEstadoServicio(waStats('frio')).st,
+        ptarEstado(ptarStats()).st
+      ];
+      st=states.includes('crit')?'crit':states.includes('warn')?'warn':states.every(x=>x==='idle')?'idle':'ok';
+    } else if(svc === 'ptab'){
+      st = ptabrEstado(ptabrStats()).st;
+    } else if(svc === 'suav'){
+      st = suavEstado(suavStats()).st;
     } else if(svc === 'vapor'){
       st = vaporEstado(vaporStats()).st;
+    } else if(svc === 'aire' || svc === 'frio'){
+      st = waEstadoServicio(waStats(svc)).st;
     } else if(svc === 'ptar'){
       st = ptarEstado(ptarStats()).st;
     } else {
@@ -2114,6 +3022,11 @@ function refrescar(){
   pintarTablas();
   pintarVapor();
   pintarPTAR();
+  pintarSuav();
+  pintarPtabr();
+  pintarWA('aire');
+  pintarWA('frio');
+  pintarPrioridades();
   pintarGraficas();
 }
 
@@ -2121,27 +3034,33 @@ function refrescar(){
 const FECHA = new Date().toLocaleDateString('es-VE',{day:'numeric', month:'long', year:'numeric'});
 function pintarEncabezado(){
   const R = RONDAS[ronda];
-  const rondas = document.querySelector('.rondas');
-  document.getElementById('view-title').textContent = SERVICIOS[activa].nom;
+  const title=document.getElementById('view-title');
+  const sub=document.getElementById('view-sub');
+  if(title) title.textContent = SERVICIOS[activa].nom;
+
+  if(activa === 'ptab'){
+    if(sub) sub.textContent = `${SERVICIOS.ptab.sub} · ${etiquetaFechaPtabr(PTABR_FECHA,true)} · 1er turno 06:00 am · 2do turno 06:00 pm`;
+    return;
+  }
+  if(activa === 'suav'){
+    if(sub) sub.textContent = `${SERVICIOS.suav.sub} · ${etiquetaFechaSuav(SUAV_FECHA,true)} · 1er y 2do turno a las 06:00`;
+    return;
+  }
   if(activa === 'vapor'){
-    document.getElementById('view-sub').textContent = `${SERVICIOS.vapor.sub} · ${etiquetaFechaVapor(VAPOR_FECHA,true)} · lecturas 07:00 y 19:00`;
-    document.getElementById('stamp').textContent = `${VAPOR_FECHAS.length || 0} días en archivo · ${VAPOR_FUENTE}`;
-    if(rondas) rondas.hidden = true;
+    if(sub) sub.textContent = `${SERVICIOS.vapor.sub} · ${etiquetaFechaVapor(VAPOR_FECHA,true)} · lecturas 07:00 y 19:00`;
     return;
   }
   if(activa === 'ptar'){
-    document.getElementById('view-sub').textContent = `${SERVICIOS.ptar.sub} · ${etiquetaFechaPTAR(PTAR_FECHA,true)} · lecturas 07:00 y 19:00`;
-    document.getElementById('stamp').textContent = `${PTAR_FECHAS.length || 0} días cargados · ${PTAR_FUENTE}`;
-    if(rondas) rondas.hidden = true;
+    if(sub) sub.textContent = `${SERVICIOS.ptar.sub} · ${etiquetaFechaPTAR(PTAR_FECHA,true)} · lecturas 07:00 y 19:00`;
     return;
   }
-  if(rondas) rondas.hidden = false;
-  document.getElementById('view-sub').textContent = `${SERVICIOS[activa].sub} · lectura de las ${R.hora}`;
-  document.getElementById('stamp').textContent = `${R.turno} · ${R.etiq} · ${FECHA}`;
-  document.querySelectorAll('[data-ronda]').forEach(b=>
-    b.setAttribute('aria-pressed', String(+b.dataset.ronda === ronda)));
+  if(activa === 'aire' || activa === 'frio'){
+    const c=waCfg(activa);
+    if(sub) sub.textContent = `${SERVICIOS[activa].sub} · ${waFechaTxt(c&&c.fecha,true)} · turnos reportados 06:00–18:00 y 18:00–06:00`;
+    return;
+  }
+  if(sub) sub.textContent = `${SERVICIOS[activa].sub} · lectura de las ${R.hora}`;
 }
-
 /* Navegación entre servicios */
 function ir(id){
   activa = id;
@@ -2149,9 +3068,13 @@ function ir(id){
   document.querySelectorAll('.view').forEach(v => { v.hidden = (v.id !== 'v-' + id); });
   pintarEncabezado();
   window.scrollTo(0, 0);
-  if(id === 'vapor') pintarVapor();
+  if(id === 'ptab') pintarPtabr();
+  else if(id === 'suav') pintarSuav();
+  else if(id === 'vapor') pintarVapor();
+  else if(id === 'aire' || id === 'frio') pintarWA(id);
   else if(id === 'ptar') pintarPTAR();
   else pintarGraficas();
+  pintarPrioridades();
 }
 document.querySelectorAll('.tab').forEach(b=>{
   b.addEventListener('click', ()=>ir(b.dataset.tab));
@@ -2180,7 +3103,10 @@ let rt;
 window.addEventListener('resize', ()=>{
   clearTimeout(rt);
   rt = setTimeout(()=>{
-    if(activa === 'vapor') pintarGraficasVapor();
+    if(activa === 'ptab') pintarGraficasPtabr();
+    else if(activa === 'suav') pintarGraficasSuav();
+    else if(activa === 'vapor') pintarGraficasVapor();
+    else if(activa === 'aire' || activa === 'frio') pintarWAGraficas(activa);
     else if(activa === 'ptar') pintarGraficasPTAR();
     else pintarGraficas();
   },140);
@@ -2195,3 +3121,6 @@ refrescar();
 document.body.dataset.dashboardReady = '1';
 inicializarPTARExcel();
 inicializarVaporExcel();
+inicializarSuavExcel();
+inicializarPtabrExcel();
+inicializarWAExcel();
