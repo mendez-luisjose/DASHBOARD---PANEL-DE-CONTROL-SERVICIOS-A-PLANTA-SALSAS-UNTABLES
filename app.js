@@ -1087,7 +1087,7 @@ if(window.PTAR_FALLBACK_DATA && window.PTAR_FALLBACK_DATA.length){
 }
 
 /* ---------------------------------------------------------
-   8. VAPOR · control real desde Reporte Control Generacion de Vapor.xlsx
+   8. VAPOR · control real desde Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx
    Procesos: Alimentación Calderas + Calderas N°1 a N°5
    Turnos: 07:00 y 19:00
    --------------------------------------------------------- */
@@ -1096,7 +1096,7 @@ let VAPOR_PROCESOS = Array.isArray(window.VAPOR_FALLBACK_PROCESOS) ? window.VAPO
 let VAPOR_DATA = [];
 let VAPOR_FECHAS = Array.isArray(window.VAPOR_FALLBACK_FECHAS) ? [...window.VAPOR_FALLBACK_FECHAS] : [];
 let VAPOR_FECHA = null;
-let VAPOR_FUENTE = 'Reporte Control Generacion de Vapor.xlsx';
+let VAPOR_FUENTE = 'Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx';
 const VAPOR_GRAFICA_VAR = {};
 const VAPOR_HISTORICO_SEL = {}; // '__all__' o id de una variable por proceso
 
@@ -1132,7 +1132,7 @@ function vaporUnidad(rango, variable){
   const s=(String(rango ?? '')+' '+String(variable ?? '')).toLowerCase();
   if(s.includes('mg/l')) return 'mg/L';
   if(s.includes('°c')) return '°C';
-  if(s.includes('us/cm')) return 'µS/cm';
+  if(s.includes('us/cm') || s.includes('µs/cm') || s.includes('μs/cm')) return 'µS/cm';
   return '';
 }
 function normalizarFechaVapor(v){
@@ -1585,6 +1585,7 @@ function pintarDesviacionesVapor(){
         <div class="title">${esc(r.variable)} · ${valorTextoVapor(r)}${v && v.unidad?' '+esc(v.unidad):''}</div>
         <div class="meta">${esc(r.proceso)} · ${esc(r.frecuencia)} · rango ${esc(r.rango || '—')}</div>
         ${r.operador?`<div class="obs">Operador: ${esc(r.operador)}</div>`:''}
+        ${r.observacion?`<div class="obs">${esc(r.observacion)}</div>`:''}
       </div>
       <time>${esc(r.turno)}</time>
     </div>`;
@@ -1698,12 +1699,15 @@ function normalizarFilasVapor(rows){
       tipo:String(r['Tipo Rango'] ?? r.tipo ?? '').trim(),
       min:vaporNumeroLocal(r['Mínimo'] ?? r.min),
       max:vaporNumeroLocal(r['Máximo'] ?? r.max),
+      observacion:String(r['Observación'] ?? r.Observacion ?? r.observacion ?? '').trim(),
+      fuente:String(r.Fuente ?? r.Hoja ?? r.fuente ?? '').trim(),
       id:String(r.VariableId ?? r.id ?? '').trim()
     };
   }).filter(r=>r.fecha && r.turno && r.id && r.valor !== null);
 }
 function cargarDatosVapor(rows,fechas,procesos,fuente,tipo='fallback'){
   const norm=normalizarFilasVapor(rows);
+  if(!norm.length) throw new Error('El archivo no contiene registros válidos de Vapor.');
   if(procesos && procesos.length) VAPOR_PROCESOS=procesos;
   VAPOR_DATA=norm;
   const dataFechas=[...new Set(norm.map(r=>r.fecha))].sort();
@@ -1801,6 +1805,11 @@ async function leerExcelVapor(buffer){
     fechas.push(fecha);
     const op07=tieneLecturaVapor(r11[4])?String(r11[4]).trim():'';
     const op19=tieneLecturaVapor(r11[5])?String(r11[5]).trim():'';
+    const obsProceso={};
+    for(let rn=14;rn<=76;rn++){
+      const rr=h.rows.get(rn)||[];
+      if(tieneLecturaVapor(rr[0]) && tieneLecturaVapor(rr[6])) obsProceso[String(rr[0]).trim()]=String(rr[6]).trim();
+    }
     for(const [rn,v] of defByRow.entries()){
       const row=h.rows.get(rn)||[];
       [[ '07:00',row[4],op07 ],[ '19:00',row[5],op19 ]].forEach(([turno,raw,operador])=>{
@@ -1810,7 +1819,7 @@ async function leerExcelVapor(buffer){
         registros.push({
           Fecha:fecha,Turno:turno,Operador:operador,Proceso:v.proceso,'Variable de control':v.variable,
           Frecuencia:v.frecuencia,'Rango Operación':v.rango,Valor:valor,Unidad:v.unidad,'Tipo Rango':v.tipo,
-          'Mínimo':v.min,'Máximo':v.max,VariableId:v.id,Hoja:h.name
+          'Mínimo':v.min,'Máximo':v.max,'Observación':obsProceso[v.proceso]||'',VariableId:v.id,Hoja:h.name
         });
       });
     }
@@ -1824,10 +1833,10 @@ async function cargarExcelVaporArchivo(file,origen='archivo seleccionado'){
 async function cargarVaporAutomatico(){
   if(location.protocol === 'file:') return;
   try{
-    const resp=await fetch('Reporte Control Generacion de Vapor.xlsx',{cache:'no-store'});
+    const resp=await fetch('Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx',{cache:'no-store'});
     if(!resp.ok) throw new Error('HTTP '+resp.status);
     const r=await leerExcelVapor(await resp.arrayBuffer());
-    cargarDatosVapor(r.rows,r.fechas,r.procesos,`Reporte Control Generacion de Vapor.xlsx · ${r.rows.length} lecturas · carga automática`,'excel');
+    cargarDatosVapor(r.rows,r.fechas,r.procesos,`Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx · ${r.rows.length} lecturas · carga automática`,'excel');
   }catch(err){
     // Al abrir con doble clic, el navegador bloquea fetch local. Los datos precargados siguen visibles.
   }
@@ -1852,7 +1861,7 @@ if(window.VAPOR_FALLBACK_DATA && window.VAPOR_FALLBACK_DATA.length){
     window.VAPOR_FALLBACK_DATA,
     window.VAPOR_FALLBACK_FECHAS || [],
     window.VAPOR_FALLBACK_PROCESOS || [],
-    'Reporte Control Generacion de Vapor.xlsx · datos precargados para apertura local',
+    'Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx · datos precargados para apertura local',
     'fallback'
   );
 }

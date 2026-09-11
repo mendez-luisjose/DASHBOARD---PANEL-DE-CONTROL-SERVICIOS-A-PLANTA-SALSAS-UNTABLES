@@ -1,17 +1,37 @@
 DASHBOARD DE SERVICIOS · VAPOR + PTAR
 
-ACTUALIZACIÓN · SELECTOR DE GRÁFICAS HISTÓRICAS
-- En Vapor y PTAR se conserva toda la funcionalidad existente.
-- Dentro de “Comportamiento histórico de todas las variables”, cada proceso ahora incluye un selector “Gráfica a visualizar”.
-- El usuario puede elegir “Todas las gráficas” o una variable específica del proceso.
-- Al elegir una variable específica, únicamente se muestra su gráfica histórica y ocupa el ancho disponible.
-- Al volver a “Todas las gráficas”, se muestran nuevamente todas las gráficas del proceso.
-- Las desviaciones, puntos fuera de rango, gráficas del día, selector de fecha, tablas y carga de Excel no se modificaron.
+ACTUALIZACIÓN DE VAPOR
+- Fuente nueva: Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx
+- Fechas disponibles: 08/09/2026 y 09/09/2026.
+- Procesos:
+  1. Alimentación Calderas
+  2. Caldera N°1
+  3. Caldera N°2
+  4. Caldera N°3
+  5. Caldera N°4
+  6. Caldera N°5
+- 58 variables de control.
+- Turnos: 07:00 y 19:00.
+- Se eliminó del dashboard la información antigua de Vapor y se reemplazó por los datos de este archivo.
+- Vista general: resumen de Vapor por proceso, lecturas registradas, desviaciones y selector de fecha.
+- Pestaña Vapor:
+  * selector de fecha;
+  * resumen por proceso;
+  * gráfica del día seleccionado;
+  * comportamiento histórico por variable;
+  * selector para ver una gráfica específica o todas;
+  * puntos fuera de rango destacados;
+  * Desviaciones del día seleccionado;
+  * tablas completas por proceso con frecuencia, rango, 07:00 y 19:00;
+  * botón para cargar un Excel Vapor con la misma estructura.
+- Las observaciones de proceso del Excel también se conservan en las desviaciones cuando corresponden.
 
-ARCHIVOS DE DATOS
-- Vapor: Reporte Control Generacion de Vapor.xlsx
-- PTAR: Reporte_Control_PTAR_01-09_al_09-09-2026.xlsx
+PTAR
+- Se conserva sin cambios la funcionalidad y datos actuales de PTAR.
+- Fuente esperada: Reporte_Control_PTAR_01-09_al_09-09-2026.xlsx
 
 APERTURA
-1. Recomendado: abrir Dashboard_Servicios_Vapor_PTAR_SELECTOR_GRAFICAS.html con doble clic.
-2. Versión modular: mantener index.html, app.js, estilos.css, ambos fallback.js, ambos Excel y el logo en la misma carpeta.
+1. Recomendado: abrir Dashboard_Servicios_Vapor_PTAR_08-09.html con doble clic.
+   Los datos de Vapor y PTAR están precargados.
+2. Para GitHub Pages o servidor web, usar index.html y mantener juntos todos los archivos del paquete.
+3. En servidor HTTP/HTTPS, el dashboard intenta leer automáticamente Reporte_Control_Generacion_Vapor_08-09_y_09-09-2026.xlsx.
