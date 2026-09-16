@@ -3112,7 +3112,141 @@ window.addEventListener('resize', ()=>{
   },140);
 });
 
+/* =========================================================
+   10. Importación acumulativa + persistencia local + Excel consolidado
+   Añadido 16-09-2026. No reemplaza registros históricos con datos ya existentes.
+   ========================================================= */
+const DASH_STORE_PREFIX='polar_servicios_dashboard_v2_';
+function dashKey(area){return DASH_STORE_PREFIX+area;}
+function dashSave(area,data){try{localStorage.setItem(dashKey(area),JSON.stringify(data));return true;}catch(e){console.warn('No se pudo guardar localmente',area,e);return false;}}
+function dashLoad(area){try{const x=JSON.parse(localStorage.getItem(dashKey(area))||'null');return Array.isArray(x)?x:null;}catch(e){return null;}}
+function dashMeaningful(v){return !(v===null||v===undefined||String(v).trim()===''||['—','-','--','/'].includes(String(v).trim()));}
+function dashMerge(existing,incoming,keyFn,valueFn){
+  const out=(existing||[]).map(x=>({...x})), pos=new Map(out.map((r,i)=>[keyFn(r),i])); let added=0,filled=0,kept=0;
+  (incoming||[]).forEach(n=>{const k=keyFn(n);if(!k)return;if(!pos.has(k)){pos.set(k,out.length);out.push({...n});added++;return;}const e=out[pos.get(k)],ev=valueFn(e),nv=valueFn(n);if(!dashMeaningful(ev)&&dashMeaningful(nv)){Object.assign(e,n);filled++;}else kept++;});
+  return {rows:out,added,filled,kept};
+}
+function dashPersistMsg(area,res){const saved=dashSave(area,res.rows);return `${res.added} registros nuevos${res.filled?` · ${res.filled} completados`:''}${saved?' · guardado localmente':' · no se pudo guardar en el navegador'}`;}
+
+async function leerObjetosHojaXlsx(buffer,nombre){
+  const zip=await abrirZipPTAR(buffer),parser=new DOMParser(),wbXml=parser.parseFromString(await zip.text('xl/workbook.xml'),'application/xml'),relXml=parser.parseFromString(await zip.text('xl/_rels/workbook.xml.rels'),'application/xml'),rels=[...relXml.getElementsByTagNameNS('*','Relationship')];let shared=[];
+  if(zip.entries.has('xl/sharedStrings.xml')){const ssXml=parser.parseFromString(await zip.text('xl/sharedStrings.xml'),'application/xml');shared=[...ssXml.getElementsByTagNameNS('*','si')].map(si=>[...si.getElementsByTagNameNS('*','t')].map(t=>t.textContent||'').join(''));}
+  const sh=[...wbXml.getElementsByTagNameNS('*','sheet')].find(s=>s.getAttribute('name')===nombre);if(!sh)return null;
+  const rid=sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id')||sh.getAttribute('r:id'),rel=rels.find(r=>r.getAttribute('Id')===rid);if(!rel)throw new Error('No se pudo resolver la hoja '+nombre);
+  let target=rel.getAttribute('Target').replace(/^\//,'');if(!target.startsWith('xl/'))target='xl/'+target.replace(/^\.\//,'');
+  const rows=await leerHojaXLSXPTAR(zip,target,shared);if(!rows.length)return [];
+  const h=rows[0].map(x=>String(x??'').trim());return rows.slice(1).filter(r=>r.some(v=>v!==''&&v!==null&&v!==undefined)).map(r=>{const o={};h.forEach((k,i)=>{if(k)o[k]=r[i]??'';});return o;});
+}
+
+const _leerExcelVaporOriginal=leerExcelVapor;
+leerExcelVapor=async function(buffer){
+  const control=await leerObjetosHojaXlsx(buffer,'Control');
+  if(control&&control.length){return {rows:control,fechas:[...new Set(control.map(r=>normalizarFechaVapor(r.Fecha)).filter(Boolean))].sort(),procesos:[]};}
+  return _leerExcelVaporOriginal(buffer);
+};
+
+cargarExcelPtabrArchivo=async function(file){const rows=await leerExcelPtabr(await file.arrayBuffer()),norm=normalizarFilasPtabr(rows),res=dashMerge(PTABR_DATA,norm,r=>[r.fecha,r.turno,r.id].join('|'),r=>r.valor??r.original);cargarDatosPtabr(res.rows,[],PTABR_PROCESOS,`${file.name} · añadido al histórico`);dashSave('ptab',res.rows);guardarBaseMaestraDashboard();alert('PTAB: '+dashPersistMsg('ptab',res)+' · base maestra actualizada descargada');};
+cargarExcelSuavArchivo=async function(file){const rows=await leerExcelSuav(await file.arrayBuffer()),norm=normalizarFilasSuav(rows),res=dashMerge(SUAV_DATA,norm,r=>[r.fecha,r.turno,r.id].join('|'),r=>r.valor??r.original);cargarDatosSuav(res.rows,[],SUAV_PROCESOS,`${file.name} · añadido al histórico`);dashSave('suav',res.rows);guardarBaseMaestraDashboard();alert('Suavizadores: '+dashPersistMsg('suav',res)+' · base maestra actualizada descargada');};
+cargarExcelPTARArchivo=async function(file){const rows=await leerExcelPTAR(await file.arrayBuffer()),norm=normalizarFilasPTAR(rows),res=dashMerge(PTAR_DATA,norm,r=>[r.fecha,r.turno,r.id].join('|'),r=>r.valor);cargarDatosPTAR(res.rows,[],PTAR_PROCESOS,`${file.name} · añadido al histórico`,'excel');dashSave('ptar',res.rows);guardarBaseMaestraDashboard();alert('PTAR: '+dashPersistMsg('ptar',res)+' · base maestra actualizada descargada');};
+cargarExcelVaporArchivo=async function(file){const r=await leerExcelVapor(await file.arrayBuffer()),norm=normalizarFilasVapor(r.rows),res=dashMerge(VAPOR_DATA,norm,x=>[x.fecha,x.turno,x.id].join('|'),x=>x.valor);cargarDatosVapor(res.rows,[],VAPOR_PROCESOS,`${file.name} · añadido al histórico`,'excel');dashSave('vapor',res.rows);guardarBaseMaestraDashboard();alert('Vapor: '+dashPersistMsg('vapor',res)+' · base maestra actualizada descargada');};
+
+cargarExcelWAParseado=function(parsed,source){
+  const ac=waBuildCatalog(parsed.catalogo,WA_CFG.aire.areasPermitidas,'aire'),nc=waBuildCatalog(parsed.catalogo,WA_CFG.frio.areasPermitidas,'nh3'),ad=waNormalizeExcelData(parsed.datos,ac,WA_CFG.aire.areasPermitidas),nd=waNormalizeExcelData(parsed.datos,nc,WA_CFG.frio.areasPermitidas);
+  if(!ad.length&&!nd.length)throw new Error('No se encontraron registros válidos para Compresores de Aire o Refrigeración/NH3.');
+  if(ad.length){const r=dashMerge(WA_CFG.aire.data,ad,x=>[x.fecha,x.turno,x.reporteId,x.id].join('|'),x=>x.valor??x.texto);const cat=[...WA_CFG.aire.catalogo];ac.forEach(v=>{if(!cat.some(x=>x.area===v.area&&x.equipo===v.equipo&&x.variable===v.variable))cat.push(v);});cargarWA('aire',r.rows,cat,[],source);dashSave('aire',r.rows);guardarExcelConsolidado('aire');}
+  if(nd.length){const r=dashMerge(WA_CFG.frio.data,nd,x=>[x.fecha,x.turno,x.reporteId,x.id].join('|'),x=>x.valor??x.texto);const cat=[...WA_CFG.frio.catalogo];nc.forEach(v=>{if(!cat.some(x=>x.area===v.area&&x.equipo===v.equipo&&x.variable===v.variable))cat.push(v);});cargarWA('frio',r.rows,cat,[],source);dashSave('frio',r.rows);guardarExcelConsolidado('frio');}
+};
+
+function restaurarPersistenciaDashboard(){
+  const p=dashLoad('ptab');if(p&&p.length)cargarDatosPtabr(p,[],PTABR_PROCESOS,'Histórico consolidado · navegador');
+  const s=dashLoad('suav');if(s&&s.length)cargarDatosSuav(s,[],SUAV_PROCESOS,'Histórico consolidado · navegador');
+  const v=dashLoad('vapor');if(v&&v.length)cargarDatosVapor(v,[],VAPOR_PROCESOS,'Histórico consolidado · navegador','local');
+  const t=dashLoad('ptar');if(t&&t.length)cargarDatosPTAR(t,[],PTAR_PROCESOS,'Histórico consolidado · navegador','local');
+  const a=dashLoad('aire');if(a&&a.length)cargarWA('aire',a,WA_CFG.aire.catalogo,[],'Histórico consolidado · navegador');
+  const f=dashLoad('frio');if(f&&f.length)cargarWA('frio',f,WA_CFG.frio.catalogo,[],'Histórico consolidado · navegador');
+}
+
+/* Escritor XLSX mínimo, sin dependencias externas. */
+const XLSX_TE=new TextEncoder();
+let XLSX_CRC_TABLE=null;
+function xlsxCrc32(u8){if(!XLSX_CRC_TABLE){XLSX_CRC_TABLE=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?0xEDB88320^(c>>>1):c>>>1;XLSX_CRC_TABLE[n]=c>>>0;}}let c=0xFFFFFFFF;for(const b of u8)c=XLSX_CRC_TABLE[(c^b)&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function xlsxU16(n){return new Uint8Array([n&255,(n>>>8)&255]);}
+function xlsxU32(n){return new Uint8Array([n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255]);}
+function xlsxCat(parts){let n=parts.reduce((a,b)=>a+b.length,0),o=new Uint8Array(n),p=0;parts.forEach(b=>{o.set(b,p);p+=b.length;});return o;}
+function xlsxZip(entries){const locals=[],centrals=[];let offset=0;for(const e of entries){const name=XLSX_TE.encode(e.name),data=typeof e.data==='string'?XLSX_TE.encode(e.data):e.data,crc=xlsxCrc32(data);const lh=xlsxCat([xlsxU32(0x04034b50),xlsxU16(20),xlsxU16(0),xlsxU16(0),xlsxU16(0),xlsxU16(0),xlsxU32(crc),xlsxU32(data.length),xlsxU32(data.length),xlsxU16(name.length),xlsxU16(0),name,data]);locals.push(lh);const ch=xlsxCat([xlsxU32(0x02014b50),xlsxU16(20),xlsxU16(20),xlsxU16(0),xlsxU16(0),xlsxU16(0),xlsxU16(0),xlsxU32(crc),xlsxU32(data.length),xlsxU32(data.length),xlsxU16(name.length),xlsxU16(0),xlsxU16(0),xlsxU16(0),xlsxU16(0),xlsxU32(0),xlsxU32(offset),name]);centrals.push(ch);offset+=lh.length;}const central=xlsxCat(centrals),end=xlsxCat([xlsxU32(0x06054b50),xlsxU16(0),xlsxU16(0),xlsxU16(entries.length),xlsxU16(entries.length),xlsxU32(central.length),xlsxU32(offset),xlsxU16(0)]);return xlsxCat([...locals,central,end]);}
+function xlsxEsc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function xlsxCol(n){let s='';for(n++;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
+function xlsxSheetXml(rows){let body='';(rows||[]).forEach((r,ri)=>{let cells='';r.forEach((v,ci)=>{if(v===null||v===undefined||v==='')return;const ref=xlsxCol(ci)+(ri+1);if(typeof v==='number'&&Number.isFinite(v))cells+=`<c r="${ref}"><v>${v}</v></c>`;else cells+=`<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xlsxEsc(v)}</t></is></c>`;});body+=`<row r="${ri+1}">${cells}</row>`;});return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;}
+function descargarLibroXlsx(nombre,sheets){const safe=s=>String(s).slice(0,31).replace(/[\\/?*\[\]:]/g,'_'),names=sheets.map(s=>safe(s.name||'Hoja'));const entries=[];entries.push({name:'_rels/.rels',data:`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`});entries.push({name:'xl/workbook.xml',data:`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n,i)=>`<sheet name="${xlsxEsc(n)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`});entries.push({name:'xl/_rels/workbook.xml.rels',data:`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((n,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')}</Relationships>`});sheets.forEach((s,i)=>entries.push({name:`xl/worksheets/sheet${i+1}.xml`,data:xlsxSheetXml(s.rows)}));entries.push({name:'[Content_Types].xml',data:`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${names.map((n,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`});const blob=new Blob([xlsxZip(entries)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nombre;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}
+function objRows(headers,objs){return [headers,...(objs||[]).map(o=>headers.map(h=>o[h]??''))];}
+
+function exportRowsArea(area){
+  if(area==='ptab'){const h=['Fecha','Turno','Hora','Operador','Proceso','Equipo','Variable de Control','Rango de Operación','Unidad','Valor','Valor original turno','Estado','Observación','Fuente','VariableId'];const o=PTABR_DATA.map(r=>({'Fecha':r.fecha,'Turno':r.turno,'Hora':r.hora,'Operador':r.operador,'Proceso':r.proceso,'Equipo':r.puesto,'Variable de Control':r.variable,'Rango de Operación':r.rango,'Unidad':r.unidad,'Valor':r.valor,'Valor original turno':r.original,'Estado':estadoRegistroPtabr(r),'Observación':r.observacion,'Fuente':r.fuente,'VariableId':r.id}));return [{name:'Control',rows:objRows(h,o)}];}
+  if(area==='suav'){const h=['Fecha','Turno','Hora impresa','Operador','Proceso','Equipo','Variable de Control','Rango de Operación','Valor original','Valor numérico / promedio','Unidad','Estado','Observación','Fuente','VariableId'];const o=SUAV_DATA.map(r=>({'Fecha':r.fecha,'Turno':r.turno,'Hora impresa':r.hora,'Operador':r.operador,'Proceso':r.proceso,'Equipo':r.puesto,'Variable de Control':r.variable,'Rango de Operación':r.rango,'Valor original':r.original,'Valor numérico / promedio':r.valor,'Unidad':r.unidad,'Estado':estadoRegistroSuav(r),'Observación':r.observacion,'Fuente':r.fuente,'VariableId':r.id}));return [{name:'Control',rows:objRows(h,o)}];}
+  if(area==='ptar'){const h=['Fecha','Turno','Operador','Proceso','Puesto de trabajo','Variable de control','Rango Operación','Unidad','Valor','Estado','Fuente','Nota de transcripción','VariableId'];const o=PTAR_DATA.map(r=>({'Fecha':r.fecha,'Turno':r.turno,'Operador':r.operador,'Proceso':r.proceso,'Puesto de trabajo':r.puesto,'Variable de control':r.variable,'Rango Operación':r.rango,'Unidad':r.unidad,'Valor':r.valor,'Estado':estadoRegistroPTAR(r),'Fuente':r.fuente||'','Nota de transcripción':r.observacion,'VariableId':r.id}));return [{name:'Control',rows:objRows(h,o)}];}
+  if(area==='vapor'){const h=['Fecha','Turno','Operador','Proceso','Variable de control','Frecuencia','Rango Operación','Valor','Unidad','Tipo Rango','Mínimo','Máximo','Estado','Observación','Fuente','VariableId'];const o=VAPOR_DATA.map(r=>({'Fecha':r.fecha,'Turno':r.turno,'Operador':r.operador,'Proceso':r.proceso,'Variable de control':r.variable,'Frecuencia':r.frecuencia,'Rango Operación':r.rango,'Valor':r.valor,'Unidad':r.unidad,'Tipo Rango':r.tipo,'Mínimo':r.min,'Máximo':r.max,'Estado':estadoRegistroVapor(r),'Observación':r.observacion,'Fuente':r.fuente,'VariableId':r.id}));return [{name:'Control',rows:objRows(h,o)}];}
+  if(area==='aire'||area==='frio'){const c=WA_CFG[area],hd=['Fecha operativa','Confianza fecha','Turno','Turno original','Operador','Reporte ID','Proceso / Área','Equipo / Puesto','Variable','Valor numérico','Valor texto','Unidad','Indicador','Estado normalizado','Observación','Línea original','Incluir dashboard'],hc=['Proceso / Área','Equipo / Puesto','Variable','Unidad','Tipo de dato','Rango operativo','Criterio disponible en fuente'];const od=c.data.map(r=>({'Fecha operativa':r.fecha,'Confianza fecha':r.confianzaFecha,'Turno':r.turno,'Turno original':r.turnoOriginal,'Operador':r.operador,'Reporte ID':r.reporteId,'Proceso / Área':r.area,'Equipo / Puesto':r.equipo,'Variable':r.variable,'Valor numérico':r.valor,'Valor texto':r.texto,'Unidad':r.unidad,'Indicador':r.indicador,'Estado normalizado':r.estado,'Observación':r.observacion,'Línea original':r.linea,'Incluir dashboard':'Sí'})),oc=c.catalogo.map(v=>({'Proceso / Área':v.area,'Equipo / Puesto':v.equipo,'Variable':v.variable,'Unidad':v.unidad,'Tipo de dato':v.tipoDato,'Rango operativo':v.rango,'Criterio disponible en fuente':v.criterio}));return [{name:'Datos Dashboard',rows:objRows(hd,od)},{name:'Catálogo',rows:objRows(hc,oc)}];}
+  return [];
+}
+function guardarExcelConsolidado(area){const nom={ptab:'PTAB',suav:'SUAVIZADORES',vapor:'VAPOR',aire:'COMPRESORES_AIRE',frio:'REFRIGERACION_NH3',ptar:'PTAR'}[area]||area;descargarLibroXlsx(`Base_${nom}_Dashboard_Actualizada.xlsx`,exportRowsArea(area));}
+function exportBaseMaestraDashboard(){
+  return [
+    {name:'PTAB',rows:exportRowsArea('ptab')[0].rows},
+    {name:'PTAR',rows:exportRowsArea('ptar')[0].rows},
+    {name:'VAPOR',rows:exportRowsArea('vapor')[0].rows},
+    {name:'SUAVIZADORES',rows:exportRowsArea('suav')[0].rows}
+  ];
+}
+function guardarBaseMaestraDashboard(){descargarLibroXlsx('Base_Maestra_Dashboard_Actualizada.xlsx',exportBaseMaestraDashboard());}
+
+async function cargarBaseMaestraAutomatica(){
+  if(location.protocol==='file:') return;
+  try{
+    const resp=await fetch('base_maestra/Base_Maestra_Dashboard.xlsx',{cache:'no-store'});
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const buffer=await resp.arrayBuffer();
+    const ptab=await leerObjetosHojaXlsx(buffer,'PTAB');
+    const ptar=await leerObjetosHojaXlsx(buffer,'PTAR');
+    const vapor=await leerObjetosHojaXlsx(buffer,'VAPOR');
+    const suav=await leerObjetosHojaXlsx(buffer,'SUAVIZADORES');
+
+    if(ptab&&ptab.length){
+      const base=normalizarFilasPtabr(ptab),local=dashLoad('ptab')||[];
+      const rows=dashMerge(base,local,r=>[r.fecha,r.turno,r.id].join('|'),r=>r.valor??r.original).rows;
+      cargarDatosPtabr(rows,[],PTABR_PROCESOS,'Base_Maestra_Dashboard.xlsx · PTAB');dashSave('ptab',rows);
+    }
+    if(ptar&&ptar.length){
+      const base=normalizarFilasPTAR(ptar),local=dashLoad('ptar')||[];
+      const rows=dashMerge(base,local,r=>[r.fecha,r.turno,r.id].join('|'),r=>r.valor).rows;
+      cargarDatosPTAR(rows,[],PTAR_PROCESOS,'Base_Maestra_Dashboard.xlsx · PTAR','excel');dashSave('ptar',rows);
+    }
+    if(vapor&&vapor.length){
+      const base=normalizarFilasVapor(vapor),local=dashLoad('vapor')||[];
+      const rows=dashMerge(base,local,r=>[r.fecha,r.turno,r.id].join('|'),r=>r.valor).rows;
+      cargarDatosVapor(rows,[],VAPOR_PROCESOS,'Base_Maestra_Dashboard.xlsx · VAPOR','excel');dashSave('vapor',rows);
+    }
+    if(suav&&suav.length){
+      const base=normalizarFilasSuav(suav),local=dashLoad('suav')||[];
+      const rows=dashMerge(base,local,r=>[r.fecha,r.turno,r.id].join('|'),r=>r.valor??r.original).rows;
+      cargarDatosSuav(rows,[],SUAV_PROCESOS,'Base_Maestra_Dashboard.xlsx · SUAVIZADORES');dashSave('suav',rows);
+    }
+    if(typeof dashUiPopulateServiceControls==='function'){['ptab','ptar','vapor','suav'].forEach(a=>{dashUiPopulateServiceControls(a);dashUiAfterRender(a);});}
+  }catch(err){console.warn('No se pudo cargar la base maestra; se conservan los datos precargados/locales.',err);}
+}
+function plantillaArea(area){
+  if(['ptab','suav','ptar','vapor'].includes(area)){const s=exportRowsArea(area)[0],head=s.rows[0],ej=s.rows[1]||head.map(()=>''),blank=ej.map((v,i)=>i===0?'':v);return [{name:'Control',rows:[head,blank]}];}
+  const sheets=exportRowsArea(area);return sheets.map(s=>({name:s.name,rows:s.name==='Catálogo'?s.rows:[s.rows[0],(s.rows[1]||[]).map((v,i)=>i===0?'':v)]}));
+}
+function descargarPlantillaArea(area){const nom={ptab:'PTAB',suav:'Suavizadores',vapor:'Vapor',aire:'Compresores_Aire',frio:'Refrigeracion_NH3',ptar:'PTAR'}[area]||area;descargarLibroXlsx(`Plantilla_Carga_${nom}.xlsx`,plantillaArea(area));}
+function instalarControlesExcelDashboard(){
+  const ids={ptab:'ptab-excel-input',suav:'suav-excel-input',vapor:'vapor-excel-input',aire:'aire-excel-input',frio:'frio-excel-input',ptar:'ptar-excel-input'};
+  Object.entries(ids).forEach(([area,id])=>{const input=document.getElementById(id);if(!input)return;const label=document.querySelector(`label[for="${id}"]`);if(label)label.textContent='Añadir desde Excel';});
+}
+
+
 /* Arranque */
+restaurarPersistenciaDashboard();
+instalarControlesExcelDashboard();
 buildKPIs();
 buildStrip();
 buildLegends();
@@ -3124,3 +3258,288 @@ inicializarVaporExcel();
 inicializarSuavExcel();
 inicializarPtabrExcel();
 inicializarWAExcel();
+
+/* =========================================================
+   11. Filtros avanzados de visualización
+   - Mes por servicio + mes global del dashboard
+   - Todos / una / ninguna gráfica para lectura del día
+   - Ninguna gráfica en históricos
+   - Todos / un / ningún proceso por pestaña
+   ========================================================= */
+const DASH_UI_FILTERS={
+  globalMonth:'__all__',
+  month:{ptab:'__all__',suav:'__all__',vapor:'__all__',aire:'__all__',frio:'__all__',ptar:'__all__'},
+  process:{ptab:'__all__',suav:'__all__',vapor:'__all__',aire:'__all__',frio:'__all__',ptar:'__all__'},
+  dayMode:{ptab:Object.create(null),suav:Object.create(null),vapor:Object.create(null),aire:Object.create(null),frio:Object.create(null),ptar:Object.create(null)},
+  histMode:{ptab:Object.create(null),suav:Object.create(null),vapor:Object.create(null),aire:Object.create(null),frio:Object.create(null),ptar:Object.create(null)}
+};
+const DASH_AREAS=['ptab','suav','vapor','aire','frio','ptar'];
+
+function dashUiMonthFromDate(fecha){return /^\d{4}-\d{2}-\d{2}$/.test(String(fecha||''))?String(fecha).slice(0,7):null;}
+function dashUiMonthLabel(m){
+  if(m==='__all__')return 'Todos los meses';
+  const x=String(m||'').match(/^(\d{4})-(\d{2})$/);if(!x)return String(m||'');
+  const dt=new Date(Number(x[1]),Number(x[2])-1,1);
+  const s=dt.toLocaleDateString('es-VE',{month:'long',year:'numeric'});
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
+function dashUiDates(area){
+  if(area==='ptab')return PTABR_FECHAS.slice();
+  if(area==='suav')return SUAV_FECHAS.slice();
+  if(area==='vapor')return VAPOR_FECHAS.slice();
+  if(area==='ptar')return PTAR_FECHAS.slice();
+  const c=waCfg(area);return c?c.fechas.slice():[];
+}
+function dashUiMonths(area){return [...new Set(dashUiDates(area).map(dashUiMonthFromDate).filter(Boolean))].sort();}
+function dashUiMonthMatch(area,fecha){const m=DASH_UI_FILTERS.month[area];return m==='__all__'||dashUiMonthFromDate(fecha)===m;}
+function dashUiProcesses(area){
+  if(area==='ptab')return PTABR_PROCESOS.map(p=>p.nombre);
+  if(area==='suav')return SUAV_PROCESOS.map(p=>p.nombre);
+  if(area==='vapor')return VAPOR_PROCESOS.map(p=>p.nombre);
+  if(area==='ptar')return PTAR_PROCESOS.map(p=>p.nombre);
+  return waAreas(area);
+}
+function dashUiProcessObjects(area){
+  if(area==='ptab')return PTABR_PROCESOS;
+  if(area==='suav')return SUAV_PROCESOS;
+  if(area==='vapor')return VAPOR_PROCESOS;
+  if(area==='ptar')return PTAR_PROCESOS;
+  return waAreas(area);
+}
+function dashUiVars(area,proc){
+  if(area==='ptab')return ptabrVariables(proc);
+  if(area==='suav')return suavVariables(proc);
+  if(area==='vapor')return vaporVariables(proc);
+  if(area==='ptar')return ptarVariables(proc);
+  return waVarsArea(area,proc);
+}
+function dashUiProcessName(area,proc){return typeof proc==='string'?proc:proc&&proc.nombre?proc.nombre:'';}
+function dashUiSetDate(area,fecha){
+  if(area==='ptab')PTABR_FECHA=fecha;
+  else if(area==='suav')SUAV_FECHA=fecha;
+  else if(area==='vapor')VAPOR_FECHA=fecha;
+  else if(area==='ptar')PTAR_FECHA=fecha;
+  else {const c=waCfg(area);if(c)c.fecha=fecha||'__sin_mes__';}
+}
+function dashUiGetDate(area){
+  if(area==='ptab')return PTABR_FECHA;
+  if(area==='suav')return SUAV_FECHA;
+  if(area==='vapor')return VAPOR_FECHA;
+  if(area==='ptar')return PTAR_FECHA;
+  const c=waCfg(area);return c?c.fecha:null;
+}
+function dashUiSelectLatestInMonth(area,month){
+  const dates=dashUiDates(area).filter(f=>month==='__all__'||dashUiMonthFromDate(f)===month);
+  if(dates.length){const current=dashUiGetDate(area);dashUiSetDate(area,dates.includes(current)?current:dates[dates.length-1]);return true;}
+  dashUiSetDate(area,null);return false;
+}
+function dashUiRenderArea(area){
+  if(area==='ptab')pintarPtabr();
+  else if(area==='suav')pintarSuav();
+  else if(area==='vapor')pintarVapor();
+  else if(area==='ptar')pintarPTAR();
+  else pintarWA(area);
+}
+function dashUiFormatDate(area){
+  const f=dashUiGetDate(area);
+  if(area==='ptab')return etiquetaFechaPtabr(f,true);
+  if(area==='suav')return etiquetaFechaSuav(f,true);
+  if(area==='vapor')return etiquetaFechaVapor(f,true);
+  if(area==='ptar')return etiquetaFechaPTAR(f,true);
+  return f==='__sin_mes__'?'Sin registros en el mes':waFechaTxt(f,true);
+}
+function dashUiDateSelectIds(area){return [`${area}-date-select`,`${area}-summary-date-select`];}
+function dashUiFilterDateSelects(area){
+  const month=DASH_UI_FILTERS.month[area];
+  dashUiDateSelectIds(area).forEach(id=>{
+    const sel=document.getElementById(id);if(!sel)return;
+    [...sel.options].forEach(o=>{const dated=/^\d{4}-\d{2}-\d{2}$/.test(o.value);o.hidden=month!=='__all__'&&(!dated||dashUiMonthFromDate(o.value)!==month);});
+    const valid=[...sel.options].filter(o=>!o.hidden&&!o.disabled&&(month==='__all__'||/^\d{4}-\d{2}-\d{2}$/.test(o.value))).map(o=>o.value);
+    const current=dashUiGetDate(area);
+    if(valid.includes(current))sel.value=current;
+    else if(!valid.length){sel.innerHTML='<option value="">Sin registros en este mes</option>';sel.disabled=true;}
+    else {sel.disabled=false;sel.value=valid[valid.length-1];}
+  });
+}
+function dashUiControlsHost(area){return document.getElementById('v-'+area);}
+function dashUiInstallServiceControls(area){
+  const view=dashUiControlsHost(area);if(!view||view.querySelector(`[data-service-controls="${area}"]`))return;
+  const dateStrip=view.querySelector('.ptar-date-strip,.suav-date-strip,.vapor-date-strip');
+  if(!dateStrip)return;
+  const box=document.createElement('div');box.className='service-view-controls';box.dataset.serviceControls=area;
+  box.innerHTML=`<label>Mes a visualizar<select data-service-month="${area}"></select></label><label>Procesos a visualizar<select data-service-process="${area}"></select></label><span class="control-note">El mes filtra las fechas del día y las gráficas históricas.</span>`;
+  dateStrip.insertAdjacentElement('afterend',box);
+}
+function dashUiPopulateServiceControls(area){
+  dashUiInstallServiceControls(area);
+  const msel=document.querySelector(`[data-service-month="${area}"]`),psel=document.querySelector(`[data-service-process="${area}"]`);
+  if(msel){
+    const months=dashUiMonths(area);msel.innerHTML=`<option value="__all__">Todos los meses</option>`+months.map(m=>`<option value="${m}">${esc(dashUiMonthLabel(m))}</option>`).join('');
+    msel.value=DASH_UI_FILTERS.month[area];
+  }
+  if(psel){
+    const ps=dashUiProcesses(area);psel.innerHTML=`<option value="__all__">Todos los procesos</option>`+ps.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')+`<option value="__none__">Ningún proceso</option>`;
+    psel.value=DASH_UI_FILTERS.process[area];
+  }
+}
+function dashUiApplyProcessFilter(area){
+  const selected=DASH_UI_FILTERS.process[area],names=dashUiProcesses(area);
+  const visible=(i)=>selected==='__all__'||(selected!=='__none__'&&names[i]===selected);
+  const kpi=document.getElementById(`${area}-kpis-proceso`);if(kpi)[...kpi.children].forEach((el,i)=>el.hidden=!visible(i));
+  const charts=document.getElementById(`${area}-graficas-procesos`);if(charts)[...charts.children].forEach((el,i)=>el.hidden=!visible(i));
+  const processes=document.getElementById(`${area}-procesos`);if(processes)[...processes.children].forEach((el,i)=>el.hidden=!visible(i));
+  let empty=document.querySelector(`[data-process-empty="${area}"]`);
+  if(selected==='__none__'){
+    if(!empty){empty=document.createElement('div');empty.className='dash-empty-choice dash-process-empty';empty.dataset.processEmpty=area;empty.textContent='No se está mostrando ningún proceso. Usa el selector “Procesos a visualizar” para volver a mostrarlos.';const controls=document.querySelector(`[data-service-controls="${area}"]`);if(controls)controls.insertAdjacentElement('afterend',empty);}
+    empty.hidden=false;
+  }else if(empty)empty.hidden=true;
+}
+
+function dashUiDayRenderer(area,host,proc,v){
+  if(area==='ptab')return renderPtabrDia(host,proc,v);
+  if(area==='suav')return renderSuavDia(host,proc,v);
+  if(area==='vapor')return renderVaporDia(host,proc,v);
+  if(area==='ptar')return renderPTARDia(host,proc,v);
+  return renderWADia(host,area,v);
+}
+function dashUiDaySelectorInfo(area){
+  if(area==='ptab')return {selector:'[data-ptab-chart-process]',index:s=>Number(s.dataset.ptabChartProcess)};
+  if(area==='suav')return {selector:'[data-suav-chart-process]',index:s=>Number(s.dataset.suavChartProcess)};
+  if(area==='vapor')return {selector:'[data-vapor-chart-process]',index:s=>Number(s.dataset.vaporChartProcess)};
+  if(area==='ptar')return {selector:'[data-ptar-chart-process]',index:s=>Number(s.dataset.ptarChartProcess)};
+  return {selector:'[data-wa-day-selector]',index:s=>Number(String(s.dataset.waDaySelector||'').split('|')[1])};
+}
+function dashUiHistorySelector(area,card){
+  if(area==='ptab')return card.querySelector('[data-ptab-history-selector]');
+  if(area==='suav')return card.querySelector('[data-suav-history-selector]');
+  if(area==='vapor')return card.querySelector('[data-vapor-history-selector]');
+  if(area==='ptar')return card.querySelector('[data-ptar-history-selector]');
+  return card.querySelector('[data-wa-history-selector]');
+}
+function dashUiAllDayMeta(area,v){
+  if(area==='vapor')return [v.frecuencia||'—',v.rango?`Rango: ${v.rango}`:''].filter(Boolean).join(' · ');
+  if(area==='aire'||area==='frio')return [v.equipo||'—',waCriterio(v)].filter(Boolean).join(' · ');
+  return [v.puesto||'—',v.rango?`Rango: ${v.rango}`:''].filter(Boolean).join(' · ');
+}
+function dashUiEnhanceCharts(area){
+  const host=document.getElementById(`${area}-graficas-procesos`);if(!host)return;
+  const procObjects=dashUiProcessObjects(area),info=dashUiDaySelectorInfo(area);
+  host.querySelectorAll(info.selector).forEach(sel=>{
+    if((area==='aire'||area==='frio')&&!String(sel.dataset.waDaySelector||'').startsWith(area+'|'))return;
+    const pi=info.index(sel),proc=procObjects[pi];if(proc===undefined)return;
+    const pname=dashUiProcessName(area,proc),vars=dashUiVars(area,proc);
+    if(!sel.querySelector('option[value="__all__"]'))sel.insertAdjacentHTML('afterbegin','<option value="__all__">Todas las gráficas</option><option value="__none__">Ninguna gráfica</option>');
+    const mode=DASH_UI_FILTERS.dayMode[area][pname];
+    const card=sel.closest('.ptar-chart-process-card');if(!card)return;
+    const day=card.querySelector('.ptar-day-block');
+    if(mode==='__all__'){
+      sel.value='__all__';day.hidden=false;
+      day.innerHTML=`<div class="dash-day-all-title"><h4>Lecturas del día seleccionado · todas las variables</h4><span>${esc(dashUiFormatDate(area))}</span></div><div class="dash-day-all-grid">${vars.map((v,vi)=>`<article class="dash-day-var-card"><div class="dash-day-var-head"><strong>${esc(v.variable)}</strong><span>${esc(dashUiAllDayMeta(area,v))}</span></div><div class="dash-day-var-chart" data-dash-day-all="${area}|${pi}|${vi}"></div></article>`).join('')}</div>`;
+      vars.forEach((v,vi)=>dashUiDayRenderer(area,day.querySelector(`[data-dash-day-all="${area}|${pi}|${vi}"]`),proc,v));
+    }else if(mode==='__none__'){
+      sel.value='__none__';day.hidden=true;
+    }else{
+      day.hidden=false;
+      if(mode&&[...sel.options].some(o=>o.value===mode))sel.value=mode;
+    }
+    const hsel=dashUiHistorySelector(area,card);
+    if(hsel){
+      if(!hsel.querySelector('option[value="__none__"]'))hsel.insertAdjacentHTML('beforeend','<option value="__none__">Ninguna gráfica</option>');
+      const hmode=DASH_UI_FILTERS.histMode[area][pname];
+      const grid=card.querySelector('.ptar-history-grid');
+      if(hmode==='__none__'){
+        hsel.value='__none__';if(grid){grid.hidden=false;grid.innerHTML='<div class="dash-empty-choice">No se está mostrando ninguna gráfica histórica.</div>';}
+      }else if(hmode&&[...hsel.options].some(o=>o.value===hmode))hsel.value=hmode;
+    }
+    const sub=card.querySelector('.ptar-process-chart-sub');
+    if(sub&&DASH_UI_FILTERS.month[area]!=='__all__')sub.textContent=sub.textContent.replace(/ · mes .+$/,'')+` · mes ${dashUiMonthLabel(DASH_UI_FILTERS.month[area])}`;
+  });
+}
+
+/* El histórico se filtra por el mes elegido sin alterar la base de datos. */
+const _dashHistPTAR=registrosHistoricosVariablePTAR;
+registrosHistoricosVariablePTAR=function(v){return _dashHistPTAR(v).filter(r=>dashUiMonthMatch('ptar',r.fecha));};
+const _dashHistVapor=registrosHistoricosVariableVapor;
+registrosHistoricosVariableVapor=function(v){return _dashHistVapor(v).filter(r=>dashUiMonthMatch('vapor',r.fecha));};
+const _dashHistSuav=registrosHistoricosVariableSuav;
+registrosHistoricosVariableSuav=function(v){return _dashHistSuav(v).filter(r=>dashUiMonthMatch('suav',r.fecha));};
+const _dashHistPtab=registrosHistoricosVariablePtabr;
+registrosHistoricosVariablePtabr=function(v){return _dashHistPtab(v).filter(r=>dashUiMonthMatch('ptab',r.fecha));};
+const _dashWaRowsVar=waRowsVar;
+waRowsVar=function(tab,id,soloFechados=true){const rows=_dashWaRowsVar(tab,id,soloFechados);return soloFechados?rows.filter(r=>dashUiMonthMatch(tab,r.fecha)):rows;};
+const _dashWaFechaTxt=waFechaTxt;
+waFechaTxt=function(fecha,larga=false){if(fecha==='__sin_mes__')return 'Sin registros en el mes';return _dashWaFechaTxt(fecha,larga);};
+
+function dashUiAfterRender(area){dashUiPopulateServiceControls(area);dashUiFilterDateSelects(area);dashUiEnhanceCharts(area);dashUiApplyProcessFilter(area);}
+function dashUiWrapRender(area,name){
+  const fn=window[name];if(typeof fn!=='function')return;
+  window[name]=function(...args){const r=fn.apply(this,args);dashUiAfterRender(area);return r;};
+}
+/* Las declaraciones globales con let/const no siempre son propiedades de window; se reasignan explícitamente. */
+const _dashPintarPtabr=pintarPtabr;pintarPtabr=function(){const r=_dashPintarPtabr.apply(this,arguments);dashUiAfterRender('ptab');return r;};
+const _dashPintarSuav=pintarSuav;pintarSuav=function(){const r=_dashPintarSuav.apply(this,arguments);dashUiAfterRender('suav');return r;};
+const _dashPintarVapor=pintarVapor;pintarVapor=function(){const r=_dashPintarVapor.apply(this,arguments);dashUiAfterRender('vapor');return r;};
+const _dashPintarPTAR=pintarPTAR;pintarPTAR=function(){const r=_dashPintarPTAR.apply(this,arguments);dashUiAfterRender('ptar');return r;};
+const _dashPintarWA=pintarWA;pintarWA=function(tab){const r=_dashPintarWA.apply(this,arguments);if(tab==='aire'||tab==='frio')dashUiAfterRender(tab);return r;};
+
+const _dashGraficasPtab=pintarGraficasPtabr;pintarGraficasPtabr=function(){const r=_dashGraficasPtab.apply(this,arguments);dashUiEnhanceCharts('ptab');dashUiApplyProcessFilter('ptab');return r;};
+const _dashGraficasSuav=pintarGraficasSuav;pintarGraficasSuav=function(){const r=_dashGraficasSuav.apply(this,arguments);dashUiEnhanceCharts('suav');dashUiApplyProcessFilter('suav');return r;};
+const _dashGraficasVapor=pintarGraficasVapor;pintarGraficasVapor=function(){const r=_dashGraficasVapor.apply(this,arguments);dashUiEnhanceCharts('vapor');dashUiApplyProcessFilter('vapor');return r;};
+const _dashGraficasPTAR=pintarGraficasPTAR;pintarGraficasPTAR=function(){const r=_dashGraficasPTAR.apply(this,arguments);dashUiEnhanceCharts('ptar');dashUiApplyProcessFilter('ptar');return r;};
+const _dashGraficasWA=pintarWAGraficas;pintarWAGraficas=function(tab){const r=_dashGraficasWA.apply(this,arguments);if(tab==='aire'||tab==='frio'){dashUiEnhanceCharts(tab);dashUiApplyProcessFilter(tab);}return r;};
+
+function dashUiInstallGlobalMonth(){
+  const view=document.getElementById('v-resumen');if(!view||view.querySelector('[data-dashboard-month]'))return;
+  const box=document.createElement('div');box.className='dashboard-month-controls';
+  const months=[...new Set(DASH_AREAS.flatMap(dashUiMonths))].sort();
+  box.innerHTML=`<label>Mes del dashboard<select data-dashboard-month><option value="__all__">Última información disponible / todos los meses</option>${months.map(m=>`<option value="${m}">${esc(dashUiMonthLabel(m))}</option>`).join('')}</select></label><span class="control-note">Al elegir un mes, cada servicio mostrará la última fecha disponible de ese mes y limitará sus históricos al mismo período.</span>`;
+  const priority=view.querySelector('#priority-resumen');if(priority)priority.insertAdjacentElement('afterend',box);else view.insertAdjacentElement('afterbegin',box);
+}
+function dashUiRefreshAll(){DASH_AREAS.forEach(a=>dashUiRenderArea(a));pintarValores();pintarEncabezado();pintarPrioridades();}
+
+/* Intercepta únicamente las opciones especiales; las opciones de variable individual conservan la lógica existente. */
+document.addEventListener('change',e=>{
+  const el=e.target;if(!(el instanceof HTMLSelectElement))return;
+  const monthArea=el.dataset.serviceMonth;
+  if(monthArea){
+    DASH_UI_FILTERS.month[monthArea]=el.value;dashUiSelectLatestInMonth(monthArea,el.value);dashUiRenderArea(monthArea);pintarValores();pintarEncabezado();pintarPrioridades();return;
+  }
+  const procArea=el.dataset.serviceProcess;
+  if(procArea){DASH_UI_FILTERS.process[procArea]=el.value;dashUiApplyProcessFilter(procArea);return;}
+  if(el.dataset.dashboardMonth!==undefined){
+    DASH_UI_FILTERS.globalMonth=el.value;
+    DASH_AREAS.forEach(a=>{DASH_UI_FILTERS.month[a]=el.value;dashUiSelectLatestInMonth(a,el.value);});
+    dashUiRefreshAll();return;
+  }
+
+  let area=null,pi=null,isDay=false,isHist=false;
+  if(el.dataset.ptabChartProcess!==undefined){area='ptab';pi=Number(el.dataset.ptabChartProcess);isDay=true;}
+  else if(el.dataset.suavChartProcess!==undefined){area='suav';pi=Number(el.dataset.suavChartProcess);isDay=true;}
+  else if(el.dataset.vaporChartProcess!==undefined){area='vapor';pi=Number(el.dataset.vaporChartProcess);isDay=true;}
+  else if(el.dataset.ptarChartProcess!==undefined){area='ptar';pi=Number(el.dataset.ptarChartProcess);isDay=true;}
+  else if(el.dataset.waDaySelector!==undefined){const x=el.dataset.waDaySelector.split('|');area=x[0];pi=Number(x[1]);isDay=true;}
+  else if(el.dataset.ptabHistorySelector!==undefined){area='ptab';pi=Number(el.dataset.ptabHistorySelector);isHist=true;}
+  else if(el.dataset.suavHistorySelector!==undefined){area='suav';pi=Number(el.dataset.suavHistorySelector);isHist=true;}
+  else if(el.dataset.vaporHistorySelector!==undefined){area='vapor';pi=Number(el.dataset.vaporHistorySelector);isHist=true;}
+  else if(el.dataset.ptarHistorySelector!==undefined){area='ptar';pi=Number(el.dataset.ptarHistorySelector);isHist=true;}
+  else if(el.dataset.waHistorySelector!==undefined){const x=el.dataset.waHistorySelector.split('|');area=x[0];pi=Number(x[1]);isHist=true;}
+  if(!area||!Number.isFinite(pi))return;
+  const proc=dashUiProcessObjects(area)[pi],pname=dashUiProcessName(area,proc);if(!pname)return;
+  if(isDay){
+    DASH_UI_FILTERS.dayMode[area][pname]=el.value;
+    if(el.value==='__all__'||el.value==='__none__'){e.stopPropagation();e.preventDefault();if(area==='ptab')pintarGraficasPtabr();else if(area==='suav')pintarGraficasSuav();else if(area==='vapor')pintarGraficasVapor();else if(area==='ptar')pintarGraficasPTAR();else pintarWAGraficas(area);}
+  }
+  if(isHist){
+    DASH_UI_FILTERS.histMode[area][pname]=el.value;
+    if(el.value==='__none__'){e.stopPropagation();e.preventDefault();dashUiEnhanceCharts(area);}
+  }
+},true);
+
+function dashUiInit(){
+  /* Se conservan solamente los controles de importación solicitados. */
+  document.querySelectorAll('[data-excel-tools]').forEach(el=>el.remove());
+  DASH_AREAS.forEach(a=>{dashUiPopulateServiceControls(a);dashUiAfterRender(a);});
+  dashUiInstallGlobalMonth();
+}
+dashUiInit();
+cargarBaseMaestraAutomatica();
