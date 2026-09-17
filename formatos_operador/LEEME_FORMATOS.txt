@@ -1,8 +1,0 @@
-FORMATOS DE CARGA DIARIA DEL OPERADOR
-
-Use únicamente el formato del área correspondiente.
-El operador debe llenar la hoja "Carga diaria" y guardar el archivo en formato .xlsx.
-No debe modificar la hoja "Control" ni los identificadores internos.
-
-Después de importar el archivo con el botón "Añadir desde Excel", el dashboard descargará automáticamente una nueva Base_Maestra_Dashboard_Actualizada.xlsx.
-Esa base contiene consolidados PTAB, PTAR, VAPOR y SUAVIZADORES.
