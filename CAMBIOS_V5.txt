@@ -1,0 +1,10 @@
+V5 · 23-09-2026
+
+- El lector XLSX respeta el número real de fila del XML, evitando desplazamientos por filas vacías.
+- Bancos de Hielo #1-#4 se leen por coordenadas fijas: E/G/I/K.
+- Temperaturas de CAV Gigante se leen por coordenadas fijas E/I y nombres de equipo establecidos.
+- Se mantiene append_sala y la hoja COMPRESORES_REFRIGERACION.
+- Nueva sección de comportamiento histórico en la pestaña unificada Sala de Compresores.
+- Históricos organizados por Sistema > Equipo > Variable, con selector Todas/una variable.
+- Se verifica que las filas recién cargadas existan realmente en Drive.
+- Backend identificado como V5-2026-09-23.

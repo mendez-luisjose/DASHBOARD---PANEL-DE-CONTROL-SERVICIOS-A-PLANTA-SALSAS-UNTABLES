@@ -1,0 +1,15 @@
+DASHBOARD SERVICIOS · CORRECCIÓN V2 · 22-09-2026
+
+CAMBIOS
+1. PTAR y Vapor: muestra correctamente 07:00 y 19:00, aun si Drive contiene duplicados o placeholders vacíos.
+2. Los turnos se normalizan (7:00/07:00/7AM -> 07:00; 19:00/7PM -> 19:00).
+3. La planilla Carga diaria se lee respetando los números físicos de fila del XLSX.
+4. Compresores de aire + Refrigeración/NH3 aparecen en una sola pestaña: “Compresores · Refrigeración · NH₃”.
+5. La carga de Sala de Compresores corrige el error “texto is not defined”.
+6. La misma planilla Hoja1 carga ambos bloques y se guarda en COMPRESORES_REFRIGERACION.
+
+INSTALACIÓN
+- GitHub: sustituir los archivos de la raíz por los de este paquete.
+- Apps Script: sustituir Code.gs por apps_script_backend/Code.gs y desplegar una NUEVA VERSIÓN.
+- No cambiar MASTER_SHEET_ID ni WRITE_KEY.
+- Hacer Ctrl+F5 después de publicar GitHub Pages.
