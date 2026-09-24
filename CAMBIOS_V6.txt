@@ -1,7 +1,0 @@
-DASHBOARD SERVICIOS · V6 · 23-09-2026
-
-1. CAV Gigante: las temperaturas individuales se leen de F/J (bloques combinados D:E + F:G y H:I + J:K).
-2. Se mantienen Banco de Hielo #1 a #4 y las cuatro horas 7AM, 1PM, 7PM y 1AM.
-3. Lecturas del día: selector de Sistema (todos/uno/ninguno) y Equipo (todos/uno/ninguno).
-4. Históricos: selector de Sistema, Equipo y Variables/valores (todos/uno/ninguno).
-5. Backend identificado como V6-2026-09-23.
